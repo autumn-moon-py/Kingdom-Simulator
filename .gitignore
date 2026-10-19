@@ -1,0 +1,14 @@
+# 依赖
+node_modules/
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# 日志与本地环境
+*.log
+.env
+.env.local
+.env.*.local
