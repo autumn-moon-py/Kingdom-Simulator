@@ -1,0 +1,202 @@
+[
+ {
+  "level": 1,
+  "scout": "+7",
+  "standardDC": 15,
+  "ac": 16,
+  "highSave": "+10",
+  "lowSave": "+4",
+  "attack": "+9",
+  "maxTactics": 1
+ },
+ {
+  "level": 2,
+  "scout": "+8",
+  "standardDC": 16,
+  "ac": 18,
+  "highSave": "+11",
+  "lowSave": "+5",
+  "attack": "+11",
+  "maxTactics": 1
+ },
+ {
+  "level": 3,
+  "scout": "+9",
+  "standardDC": 18,
+  "ac": 19,
+  "highSave": "+12",
+  "lowSave": "+6",
+  "attack": "+12",
+  "maxTactics": 1
+ },
+ {
+  "level": 4,
+  "scout": "+11",
+  "standardDC": 19,
+  "ac": 21,
+  "highSave": "+14",
+  "lowSave": "+8",
+  "attack": "+14",
+  "maxTactics": 2
+ },
+ {
+  "level": 5,
+  "scout": "+12",
+  "standardDC": 20,
+  "ac": 22,
+  "highSave": "+15",
+  "lowSave": "+9",
+  "attack": "+15",
+  "maxTactics": 2
+ },
+ {
+  "level": 6,
+  "scout": "+14",
+  "standardDC": 22,
+  "ac": 24,
+  "highSave": "+17",
+  "lowSave": "+11",
+  "attack": "+17",
+  "maxTactics": 2
+ },
+ {
+  "level": 7,
+  "scout": "+15",
+  "standardDC": 23,
+  "ac": 25,
+  "highSave": "+18",
+  "lowSave": "+12",
+  "attack": "+18",
+  "maxTactics": 2
+ },
+ {
+  "level": 8,
+  "scout": "+16",
+  "standardDC": 24,
+  "ac": 27,
+  "highSave": "+19",
+  "lowSave": "+13",
+  "attack": "+20",
+  "maxTactics": 3
+ },
+ {
+  "level": 9,
+  "scout": "+18",
+  "standardDC": 26,
+  "ac": 28,
+  "highSave": "+21",
+  "lowSave": "+15",
+  "attack": "+21",
+  "maxTactics": 3
+ },
+ {
+  "level": 10,
+  "scout": "+19",
+  "standardDC": 27,
+  "ac": 30,
+  "highSave": "+22",
+  "lowSave": "+16",
+  "attack": "+23",
+  "maxTactics": 3
+ },
+ {
+  "level": 11,
+  "scout": "+21",
+  "standardDC": 28,
+  "ac": 31,
+  "highSave": "+24",
+  "lowSave": "+18",
+  "attack": "+24",
+  "maxTactics": 3
+ },
+ {
+  "level": 12,
+  "scout": "+22",
+  "standardDC": 30,
+  "ac": 33,
+  "highSave": "+25",
+  "lowSave": "+19",
+  "attack": "+26",
+  "maxTactics": 4
+ },
+ {
+  "level": 13,
+  "scout": "+23",
+  "standardDC": 31,
+  "ac": 34,
+  "highSave": "+26",
+  "lowSave": "+20",
+  "attack": "+27",
+  "maxTactics": 4
+ },
+ {
+  "level": 14,
+  "scout": "+25",
+  "standardDC": 32,
+  "ac": 36,
+  "highSave": "+28",
+  "lowSave": "+22",
+  "attack": "+29",
+  "maxTactics": 4
+ },
+ {
+  "level": 15,
+  "scout": "+26",
+  "standardDC": 34,
+  "ac": 37,
+  "highSave": "+29",
+  "lowSave": "+23",
+  "attack": "+30",
+  "maxTactics": 4
+ },
+ {
+  "level": 16,
+  "scout": "+28",
+  "standardDC": 35,
+  "ac": 39,
+  "highSave": "+30",
+  "lowSave": "+25",
+  "attack": "+32",
+  "maxTactics": 5
+ },
+ {
+  "level": 17,
+  "scout": "+29",
+  "standardDC": 36,
+  "ac": 40,
+  "highSave": "+32",
+  "lowSave": "+26",
+  "attack": "+33",
+  "maxTactics": 5
+ },
+ {
+  "level": 18,
+  "scout": "+30",
+  "standardDC": 38,
+  "ac": 42,
+  "highSave": "+33",
+  "lowSave": "+27",
+  "attack": "+35",
+  "maxTactics": 5
+ },
+ {
+  "level": 19,
+  "scout": "+32",
+  "standardDC": 39,
+  "ac": 43,
+  "highSave": "+35",
+  "lowSave": "+29",
+  "attack": "+36",
+  "maxTactics": 5
+ },
+ {
+  "level": 20,
+  "scout": "+33",
+  "standardDC": 40,
+  "ac": 45,
+  "highSave": "+36",
+  "lowSave": "+30",
+  "attack": "+38",
+  "maxTactics": 6
+ }
+]
