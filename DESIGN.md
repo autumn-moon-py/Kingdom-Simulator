@@ -1,6 +1,6 @@
 ---
-name: 拥王者 · 王国模拟器
-description: 桌边的王国账本 —— 把王国规则的记账搬到屏幕上
+name: 失窃之地 · 战役地图
+description: 桌边的战役地图 —— 多图幅拼接、探索标记与区域标注
 colors:
   paper: "#f4f1e9"
   paper-2: "#fbf9f3"
