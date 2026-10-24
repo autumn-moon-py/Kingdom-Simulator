@@ -10,7 +10,7 @@
 
 ```bash
 npm install
-npm run dev      # vite，server.host=true，局域网可访问 /map.html
+npm run dev      # vite，server.host=true，局域网可访问根路径
 npm run build    # 产物在 dist/（仓库里已跟踪，改完要重新构建）
 npm test         # node --test tests/*.test.js
 ```
@@ -41,7 +41,7 @@ npm test         # node --test tests/*.test.js
    - `regionLabels`：按区域重心定位（不吸附格心），凹形/环形重心落在区域外时退回最近的格。
 5. **普通格编号**：`plainInfo` 给「有区域归属但原模组没有编号」的格自动编号 `区域码N序号`（如 `NMN6`），按全景 y/x 排序；跨图幅同一物理格共用一个编号；不在图上画标签，只用于侧栏显示与「跳到编号」。
 6. **显示筛选**：`scopeCodes`（区域多选）同时作用于填色、边界、区域名、编号点；`showRegions / showNames / showBorders / showPins / onlyMarked` 记忆在 `localStorage.kingdom-map-ui-v1`。
-7. **点击语义**：点有编号的格选中、再点同格取消；点无归属的空白格取消；点工具栏/页面空白也取消。`onDocClick` 的排除列表只放过可交互控件、地图和侧栏，别再把整块 `.mapBar` 排除掉。
+7. **点击语义**：点有编号的格选中、再点同格取消；点无归属的空白格取消；点工具栏/页面空白也取消。`onDocClick` 的排除列表只包含可交互控件、地图和侧栏，工具栏留白与页面留白都算空白。
 8. **渲染层顺序**：底图 → 区域填色 → 占据/备注 → 悬浮/选中 → 边界 → 标点 → 区域名。
 9. **导出**：与预览同顺序、同颜色；线宽/字号/标记大小按 `view.w ÷ mapwrap.clientWidth` 换算，导出图看起来就是预览的样子。
 
@@ -51,7 +51,7 @@ npm test         # node --test tests/*.test.js
 - 接缝两侧格网有 1–2px 偏差，邻格查找用 `0.45W` 容差、边的中点用 8px 分桶去重；改成精确匹配会重新出现断线/双线。
 - 不要把随选中变化的数组塞进 `sheets` computed，否则每次点击都会重建整层 SVG（手机端表现为整图闪烁）；重层（区域/格网状态/边界）用 `v-memo`。
 - 全景 SVG 层必须 `preserveAspectRatio="none"`，且容器 `aspectRatio = view.w / view.h`，否则会拉伸。
-- 存档字段固定在 `MAP_FIELDS`（`hexClaimed/hexNotes/pins/mapRegions/mapCalib/diplomacy`），改动要同步 `tests/mapStore.test.js`。
+- 存档字段固定在 `MAP_FIELDS`（`hexClaimed/hexNotes/pins/mapCalib`），改动要同步 `tests/mapStore.test.js`。
 
 ## 交付前检查
 

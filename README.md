@@ -17,9 +17,9 @@
 
 地图状态写入 `localStorage` 的 `kingdom-map-v1`，只包含：
 
-`hexClaimed`、`hexNotes`、`pins`、`mapRegions`、`mapCalib`、`diplomacy`
+`hexClaimed`、`hexNotes`、`pins`、`mapCalib`
 
-写入时带 400ms 防抖，另有快照、5 份滚动备份和坏档留档恢复；首次打开如果只有旧版键 `kingdom-sim-v1`，会自动挑出这六个字段迁移，旧键保留不删。
+写入时带 400ms 防抖，另有快照、5 份滚动备份和坏档留档恢复；首次打开如果只有旧版键 `kingdom-sim-v1`，会自动挑出这四个字段迁移，旧键保留不删。
 
 界面偏好另行存在 `kingdom-map-ui-v1`，与存档分开。
 
@@ -27,7 +27,7 @@
 
 ```bash
 npm install
-npm run dev      # 默认 http://localhost:5173/map.html，同时开放内网访问
+npm run dev      # 默认 http://localhost:5173/，同时开放内网访问
 npm test
 npm run build
 ```

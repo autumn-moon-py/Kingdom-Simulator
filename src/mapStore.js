@@ -1,6 +1,6 @@
 import { reactive, watch } from 'vue'
 
-// 地图存档：只保存地图相关的六个字段。
+// 地图存档：只保存地图用到的四个字段（占据、备注、自定标记、格网校准）。
 // 主存档保留在 kingdom-map-v1；另有可读快照、元信息、滚动备份，便于外部排查与坏档恢复。
 const KEY = 'kingdom-map-v1'
 const LEGACY_KEY = 'kingdom-sim-v1'
@@ -11,16 +11,14 @@ const CORRUPT_PREFIX = 'kingdom-map-v1.corrupt.'
 const BACKUP_COUNT = 5
 const SAVE_DELAY = 400
 
-export const MAP_FIELDS = ['hexClaimed', 'hexNotes', 'pins', 'mapRegions', 'mapCalib', 'diplomacy']
+export const MAP_FIELDS = ['hexClaimed', 'hexNotes', 'pins', 'mapCalib']
 
 export function mapDefaults() {
   return {
     hexClaimed: {},
     hexNotes: {},
     pins: {},
-    mapRegions: {},
     mapCalib: {},
-    diplomacy: {},
   }
 }
 
@@ -60,9 +58,6 @@ export function normalizeMapFields(saved) {
       if (arr.length) out.pins[mid] = arr
     }
   }
-  if (isObj(src.mapRegions)) {
-    for (const [k, v] of Object.entries(src.mapRegions)) if (typeof v === 'string' && v) out.mapRegions[k] = v
-  }
   if (isObj(src.mapCalib)) {
     for (const [mid, v] of Object.entries(src.mapCalib)) {
       if (!isObj(v)) continue
@@ -73,9 +68,6 @@ export function normalizeMapFields(saved) {
       }
       if (Object.keys(o).length) out.mapCalib[mid] = o
     }
-  }
-  if (isObj(src.diplomacy)) {
-    for (const [k, v] of Object.entries(src.diplomacy)) if (v === true) out.diplomacy[k] = true
   }
   return out
 }

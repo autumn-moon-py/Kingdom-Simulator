@@ -1222,7 +1222,6 @@ onBeforeUnmount(() => {
 .mapAside textarea { min-height: 96px; width: 100%; }
 .calTitle { margin: 22px 0 0; font-size: 13px; font-weight: 600; letter-spacing: 0.08em; color: var(--ink-2); }
 
-.swatch { display: inline-block; width: 11px; height: 11px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
 .act.on { border-color: var(--ochre); color: var(--ochre); background: var(--cover-old); }
 
 @media (max-width: 1180px) {

@@ -15,11 +15,9 @@
   --rule-hover: #cfc6b3;
   --select-wash: #e6d9bd;
   --wash-ochre: #f6efe0;
-  --wash-warn: #f8ece7;
-  --wash-damage: #f6e3d6;
+  /* 地图图层专用：只出现在地图原画上，不进入页面 UI */
+  --map-claimed: #4d7a4d;
 
-  /* 单列最宽 1060px，正文不必再压到半栏；这一档刚好让一条规则原文排成一行 */
-  --measure: 58em;
   --gap-section: 34px;
 }
 
@@ -49,44 +47,6 @@ body { caret-color: var(--ochre); accent-color: var(--ochre); }
   border-radius: 3px;
 }
 
-/* 顶部：标题与页签 */
-header {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  background: var(--paper);
-  padding: 20px 24px 0;
-  border-bottom: 1px solid var(--rule);
-}
-header h1 {
-  margin: 0 0 14px;
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--ink);
-}
-/* 只作用于顶部页签；页面内的目录 nav 是纵向列表，不能被它拉成一行 */
-header nav { display: flex; gap: 20px; }
-header nav button {
-  appearance: none;
-  border: 0;
-  background: transparent;
-  padding: 0 0 10px;
-  margin: 0;
-  color: var(--ink-2);
-  font: inherit;
-  font-size: 14px;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-}
-header nav button:hover { color: var(--ink); }
-header nav button.active {
-  color: var(--ink);
-  font-weight: 600;
-  border-bottom-color: var(--ochre);
-}
-
 main { max-width: 1060px; margin: 0 auto; padding: 26px 24px 64px; }
 
 /* 板块：用留白与细线分层，不做卡片 */
@@ -99,20 +59,13 @@ main { max-width: 1060px; margin: 0 auto; padding: 26px 24px 64px; }
   margin: 0 0 var(--gap-section);
 }
 .panel:first-child { border-top: 0; }
-.panel h2 {
-  margin: 0 0 14px;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  color: var(--ink-2);
-}
 .panel > :last-child { margin-bottom: 0; }
 
 .row { display: flex; flex-wrap: wrap; gap: 22px 26px; }
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field label { color: var(--ink-2); font-size: 12px; letter-spacing: 0.04em; }
 
-input, textarea, select {
+input, textarea {
   font: inherit;
   color: var(--ink);
   background: var(--paper-2);
@@ -120,16 +73,7 @@ input, textarea, select {
   border-radius: 4px;
   padding: 7px 9px;
 }
-input:hover, textarea:hover, select:hover { border-color: var(--rule-hover); }
-/* 下拉框改用自绘箭头：系统箭头贴右边框太近，容易被裁掉 */
-select {
-  appearance: none;
-  -webkit-appearance: none;
-  padding-right: 28px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23736d5f' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-}
+input:hover, textarea:hover { border-color: var(--rule-hover); }
 input[type="number"] {
   width: 96px;
   font-variant-numeric: tabular-nums;
@@ -137,95 +81,14 @@ input[type="number"] {
 textarea { width: 100%; min-height: 88px; resize: vertical; }
 ::placeholder { color: var(--ink-3); opacity: 1; }
 
-table { width: 100%; border-collapse: collapse; }
-th, td {
-  text-align: left;
-  padding: 9px 10px;
-  border-bottom: 1px solid var(--rule-soft);
-  vertical-align: top;
-}
-th {
-  color: var(--ink-2);
-  font-weight: 500;
-  font-size: 12px;
-  letter-spacing: 0.06em;
-  border-bottom-color: var(--rule);
-}
-tbody tr:last-child td { border-bottom: 0; }
-td:has(input[type="number"]), .num { font-variant-numeric: tabular-nums; }
-
 p { margin: 0 0 12px; }
 .muted { color: var(--ink-3); }
-.prose { max-width: var(--measure); white-space: pre-wrap; }
-
-/* 规则原文收进标题旁的 ? 圆圈；点一下在页脚说明条里展开，键盘与触屏同样可达 */
-.hint { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; margin-left: 5px; padding: 0; appearance: none; background: transparent; border: 1px solid var(--rule); border-radius: 50%; color: var(--ink-3); font-family: inherit; font-size: 11px; line-height: 1; letter-spacing: 0; vertical-align: 1px; cursor: pointer; }
-.hint:hover, .hint.open { border-color: var(--ochre); color: var(--ochre); }
-
-.hintbar {
-  position: fixed;
-  left: 50%;
-  bottom: 20px;
-  transform: translateX(-50%);
-  z-index: 20;
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  width: min(680px, calc(100vw - 32px));
-  padding: 11px 13px;
-  border: 1px solid var(--ochre-soft);
-  border-radius: 4px;
-  background: var(--paper-2);
-  color: var(--ink);
-  font-size: 13px;
-  line-height: 1.65;
-}
-.hintbar .x { flex: none; }
 
 /* 低频入口默认收起，不常驻占版面 */
 details.more > summary { cursor: pointer; font-size: 13px; font-weight: 600; letter-spacing: 0.12em; color: var(--ink-2); list-style: none; }
 details.more > summary::-webkit-details-marker { display: none; }
 details.more > summary::before { content: "▸ "; color: var(--ink-3); }
 details.more[open] > summary::before { content: "▾ "; }
-
-.tag {
-  display: inline-block;
-  border: 1px solid var(--rule);
-  border-radius: 3px;
-  padding: 0 7px;
-  margin-right: 6px;
-  font-size: 12px;
-  color: var(--ink-2);
-  font-variant-numeric: tabular-nums;
-}
-
-/* 格子索引（地图页里的折叠列表） */
-.hexlist { border-top: 1px solid var(--rule); max-height: 64vh; overflow: auto; }
-.hexlist button {
-  appearance: none;
-  width: 100%;
-  display: flex;
-  gap: 10px;
-  align-items: baseline;
-  padding: 8px 10px;
-  border: 0;
-  border-bottom: 1px solid var(--rule-soft);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.hexlist button:hover { background: var(--wash-ochre); }
-.hexlist button.sel { background: var(--cover-old); }
-.hexlist .code {
-  flex: none;
-  width: 52px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--ochre);
-}
-.hexlist .note-dot { margin-left: auto; color: var(--ochre); font-size: 12px; }
 
 /* 控件 */
 button.act {
@@ -242,22 +105,6 @@ button.act {
 button.act:hover { border-color: var(--ochre-soft); color: var(--ochre); }
 button.act:active { background: var(--cover-old); }
 button.act:disabled { color: var(--ink-3); border-color: var(--rule-soft); cursor: not-allowed; }
-
-/* 鼠鼠模式：结果档按钮与换算后的 DC */
-.mroll { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.mdc { color: var(--ink-2); font-size: 12px; white-space: nowrap; }
-.mroll button.act { padding: 5px 10px; font-size: 12px; }
-.mroll button.act.on { border-color: var(--ochre); background: var(--wash-ochre); color: var(--ochre); font-weight: 600; }
-.autoOut { font-size: 12px; color: var(--ink-3); white-space: nowrap; }
-/* 待办红点：由状态推导，完成后自动消失 */
-.dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--ochre); margin-left: 5px; vertical-align: middle; }
-/* 每个检定位置：结果行 + 速查按钮 + 贴在该位置旁的速查面板 */
-.checkRoll { position: relative; }
-.rollLine { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.quickBtn { padding: 5px 8px !important; font-size: 12px !important; }
-.quickBtn.on { border-color: var(--ochre); background: var(--wash-ochre); color: var(--ochre); font-weight: 600; }
-.mfield { display: flex; flex-direction: column; gap: 5px; position: relative; }
-
 
 .check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 
