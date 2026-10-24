@@ -284,18 +284,7 @@ function shownFor(geo) {
   const cur = geo.here.find((l) => l.code === selKey.value)
   return cur && !out.includes(cur) ? [...out, cur] : out
 }
-function stateCellsFor(geo) {
-  const out = []
-  for (const c of geo.cells) {
-    const code = geo.codeOfCell[c.key] || plainInfo.value.codeOfKey[c.key]
-    const claimed = !!state.hexClaimed[c.key] || !!(code && state.hexClaimed[code])
-    const noted = !!state.hexNotes[c.key] || !!(code && state.hexNotes[code])
-    if (claimed || noted) out.push({ key: c.key, pts: c.pts, cls: { claimed, noted: !claimed } })
-  }
-  // 内容签名：备注文字变化不该触发格网层重绘
-  const sig = out.map((c) => c.key + (c.cls.claimed ? '+' : '-')).join('|')
-  return { cells: out, sig }
-}
+
 // 左缘渐隐宽度：前一张图幅与本图幅的重叠像素（相邻裁片重叠 5–25px）
 function leftFade(m) {
   const i = maps.findIndex((x) => x.id === m.id)
@@ -307,7 +296,6 @@ const sheets = computed(() => shownMaps.value.map((m) => {
   const geo = geomOf(m)
   const v = view.value
   const fade = leftFade(m)
-  const st = stateCellsFor(geo)
   return {
     m, geo,
     // 在连续画布中的位置（相对当前 union 视图）
@@ -319,8 +307,6 @@ const sheets = computed(() => shownMaps.value.map((m) => {
     },
     fade,
     fadePct: fade ? (fade / m.w) * 100 + '%' : '',
-    stateCells: st.cells,
-    stateSig: st.sig,
     pins: state.pins[m.id] || [],
   }
 }))
@@ -594,6 +580,30 @@ const regionShapes = computed(() => {
   }
   return out
 })
+// 占据/备注同样画在全景层：跨图幅的同一物理格只画一次，接缝处不会叠出深色竖条
+const stateShapes = computed(() => {
+  const seen = new Set()
+  const out = []
+  for (const m of shownMaps.value) {
+    const geo = geomOf(m)
+    const g = geo.g
+    for (const c of geo.cells) {
+      const group = groupKeys(c.key)
+      if (seen.has(group[0])) continue
+      const code = geo.codeOfCell[c.key] || plainInfo.value.codeOfKey[c.key]
+      const marked = (obj) => !!obj[c.key] || group.some((k) => !!obj[k]) || !!(code && obj[code])
+      const claimed = marked(state.hexClaimed)
+      const noted = marked(state.hexNotes)
+      if (!claimed && !noted) continue
+      seen.add(group[0])
+      const pts = cellVerts(g, c.q, c.r)
+        .map(([x, y]) => `${(x + m.left).toFixed(1)},${(y + m.top).toFixed(1)}`)
+        .join(' ')
+      out.push({ key: c.key, pts, cls: { claimed, noted: !claimed } })
+    }
+  }
+  return out
+})
 // 悬浮/选中高亮也画在全景层，避免在图幅边缘被裁成半格
 function shapesForGroup(group) {
   const seen = new Set()
@@ -786,10 +796,10 @@ function drawRegionFills(ctx, ox) {
   }
   ctx.restore()
 }
-// 已占据 / 已备注（图幅本地坐标，调用前已 translate）
-function drawState(ctx, s) {
-  for (const c of s.stateCells) {
-    tracePath(ctx, ptsOf(c.pts))
+// 已占据 / 已备注（全景坐标）
+function drawState(ctx, ox) {
+  for (const c of stateShapes.value) {
+    tracePath(ctx, ptsOf(c.pts).map(([x, y]) => [x - ox, y]))
     ctx.fillStyle = c.cls.claimed ? 'rgba(77, 122, 77, 0.28)' : 'rgba(176, 138, 69, 0.24)'
     ctx.fill()
   }
@@ -888,12 +898,7 @@ async function exportMap() {
     const cw = wrapEl.value?.clientWidth || 0
     const k = cw ? v.w / cw : 2
     drawRegionFills(ctx, v.x)
-    for (const s of sheets.value) {
-      ctx.save()
-      ctx.translate(s.m.left - v.x, s.m.top)
-      drawState(ctx, s)
-      ctx.restore()
-    }
+    drawState(ctx, v.x)
     drawBorders(ctx, v.x, k)
     for (const s of sheets.value) {
       ctx.save()
@@ -1063,16 +1068,13 @@ onBeforeUnmount(() => {
             <polygon v-for="c in regionShapes" :key="c.key" class="hex-region" :points="c.pts" :style="{ fill: c.color }" />
           </svg>
           <svg
-            v-for="s in sheets"
-            :key="'hex:' + s.m.id"
-            v-memo="[s.m.id, s.style.left, s.style.top, s.style.width, s.style.height, s.stateSig]"
-            class="hexlayer"
-            :style="s.style"
-            :viewBox="`0 0 ${s.m.w} ${s.m.h}`"
+            class="statelayer"
+            v-memo="[stateShapes, view.x, view.w]"
+            :viewBox="`${view.x} 0 ${view.w} ${view.h}`"
             preserveAspectRatio="none"
             aria-hidden="true"
           >
-            <polygon v-for="c in s.stateCells" :key="'s' + c.key" class="hex-st" :class="c.cls" :points="c.pts" />
+            <polygon v-for="c in stateShapes" :key="'st' + c.key" class="hex-st" :class="c.cls" :points="c.pts" />
           </svg>
           <svg
             class="highlightlayer"
@@ -1186,10 +1188,8 @@ onBeforeUnmount(() => {
   mask-image: linear-gradient(to right, rgba(0, 0, 0, 0), #000 var(--fade));
 }
 
-/* 六角格图层：与对应底图同一坐标系（viewBox = 底图像素），preserveAspectRatio=none 保证严格贴合 */
-.hexlayer { position: absolute; pointer-events: none; }
-/* 区域色块、悬浮/选中高亮、边界都用全景坐标，跨图幅接缝也能连续 */
-.regionlayer, .highlightlayer, .borderlayer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+/* 区域色块、占据/备注、悬浮/选中高亮、边界都用全景坐标，跨图幅接缝也能连续 */
+.regionlayer, .statelayer, .highlightlayer, .borderlayer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .hex-region { stroke: none; fill-opacity: 0.18; }
 .hex-st.claimed { fill: var(--map-claimed); fill-opacity: 0.28; stroke: none; }
 .hex-st.noted { fill: var(--ochre-soft); fill-opacity: 0.24; stroke: none; }
