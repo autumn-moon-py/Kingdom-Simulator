@@ -17,6 +17,7 @@
   --wash-ochre: #f6efe0;
   /* 地图图层专用：只出现在地图原画上，不进入页面 UI */
   --map-claimed: #4d7a4d;
+  --map-explored: #3f4f86;
 
   --gap-section: 34px;
 }
