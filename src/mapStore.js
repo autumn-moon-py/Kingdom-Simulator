@@ -7,6 +7,7 @@ const KEY = 'kingdom-map-v1'
 const LEGACY_KEY = 'kingdom-sim-v1'
 const SNAPSHOT_KEY = 'kingdom-map-v1.snapshot'
 const META_KEY = 'kingdom-map-v1.meta'
+const SAVED_AT_KEY = 'kingdom-map-v1.saved-at'
 const BACKUP_PREFIX = 'kingdom-map-v1.bak.'
 const CORRUPT_PREFIX = 'kingdom-map-v1.corrupt.'
 const ALIAS_MIGRATED_KEY = 'kingdom-map-v1.alias-migrated'
@@ -159,11 +160,46 @@ let lastWritten = stableStringify(normalizeMapFields(state))
 let saveTimer = null
 let lastError = ''
 
-// 从文件存档接管：优先使用服务器里的 saves/，不覆盖 localStorage 的兜底
+function hasMapData(v) {
+  if (!isObj(v)) return false
+  for (const k of MAP_FIELDS) {
+    const field = v[k]
+    if (isObj(field) && Object.keys(field).length) return true
+  }
+  return false
+}
+function readLocalSavedAt() {
+  if (typeof localStorage === 'undefined') return 0
+  try {
+    const n = Number(localStorage.getItem(SAVED_AT_KEY))
+    if (Number.isFinite(n) && n > 0) return n
+    const meta = JSON.parse(localStorage.getItem(META_KEY) || 'null')
+    const t = meta ? Date.parse(meta.lastSavedAt) : 0
+    return Number.isFinite(t) ? t : 0
+  } catch (e) {
+    return 0
+  }
+}
+
+// 老版本留下的本地存档没有时间戳：以当前时间作为基线，避免被旧文件覆盖
+if (typeof localStorage !== 'undefined' && hasMapData(state) && !readLocalSavedAt()) {
+  try { localStorage.setItem(SAVED_AT_KEY, String(Date.now())) } catch (e) { /* 忽略 */ }
+}
+
+// 从文件存档接管：本地有数据且不比文件旧时保留本地，刷新不会丢刚改的内容
 export function applyRemote(raw) {
+  const remoteAt = Number(raw && raw.savedAt) || 0
+  const localAt = readLocalSavedAt()
+  // 本地有保存时间且不比文件旧时保留本地；旧文件没有时间戳时也不覆盖已有本地数据
+  if (localAt > 0 && (!remoteAt || localAt > remoteAt)) return false
+  if (!localAt && hasMapData(state) && !remoteAt) return false
   const next = normalizeMapFields(raw)
   Object.assign(state, next)
   lastWritten = stableStringify(next)
+  if (remoteAt) {
+    try { localStorage.setItem(SAVED_AT_KEY, String(remoteAt)) } catch (e) { /* 忽略 */ }
+  }
+  return true
 }
 
 function writeMeta() {
@@ -180,7 +216,6 @@ function writeMeta() {
 }
 
 function saveNow(reason = 'auto') {
-  if (typeof localStorage === 'undefined') return false
   let payload
   try {
     payload = stableStringify(normalizeMapFields(state))
@@ -189,42 +224,43 @@ function saveNow(reason = 'auto') {
     writeMeta()
     return false
   }
-  try {
-    const current = localStorage.getItem(KEY)
-    // 主存档被外部删除或改写时，即使内存数据没变也补写回去
-    if (payload === lastWritten && current === payload) return true
-    if (current && current !== payload) {
-      if (parseFields(current)) {
-        // 滚动备份：bak.4 <- bak.3 ... bak.0 <- 当前主存档
-        for (let i = BACKUP_COUNT - 1; i > 0; i--) {
-          const prev = localStorage.getItem(BACKUP_PREFIX + (i - 1))
-          if (prev) localStorage.setItem(BACKUP_PREFIX + i, prev)
-        }
-        localStorage.setItem(BACKUP_PREFIX + '0', current)
-      } else {
-        try { localStorage.setItem(CORRUPT_PREFIX + Date.now(), current) } catch (e) { /* 忽略 */ }
-      }
-    }
-    localStorage.setItem(KEY, payload)
-    // 可读快照：外部排查时直接看这个键，或从控制台导出
+  const savedAt = Date.now()
+  // 本地写入失败（隐私模式/禁用存储）时仍然提交到文件存档
+  if (typeof localStorage !== 'undefined') {
     try {
-      localStorage.setItem(SNAPSHOT_KEY, JSON.stringify({
-        app: 'stolen-lands-map',
-        savedAt: new Date().toISOString(),
-        reason,
-        data: JSON.parse(payload),
-      }, null, 1))
-    } catch (e) { /* 忽略 */ }
-    lastWritten = payload
-    lastError = ''
-    writeMeta()
-    try { saveRemote(KEY, JSON.parse(payload)) } catch (e) { /* 忽略 */ }
-    return true
-  } catch (e) {
-    lastError = `写入失败：${e.message || e}`
-    writeMeta()
-    return false
+      const current = localStorage.getItem(KEY)
+      if (current && current !== payload) {
+        if (parseFields(current)) {
+          // 滚动备份：bak.4 <- bak.3 ... bak.0 <- 当前主存档
+          for (let i = BACKUP_COUNT - 1; i > 0; i--) {
+            const prev = localStorage.getItem(BACKUP_PREFIX + (i - 1))
+            if (prev) localStorage.setItem(BACKUP_PREFIX + i, prev)
+          }
+          localStorage.setItem(BACKUP_PREFIX + '0', current)
+        } else {
+          try { localStorage.setItem(CORRUPT_PREFIX + Date.now(), current) } catch (e) { /* 忽略 */ }
+        }
+      }
+      localStorage.setItem(KEY, payload)
+      try { localStorage.setItem(SAVED_AT_KEY, String(savedAt)) } catch (e) { /* 忽略 */ }
+      // 可读快照：外部排查时直接看这个键，或从控制台导出
+      try {
+        localStorage.setItem(SNAPSHOT_KEY, JSON.stringify({
+          app: 'stolen-lands-map',
+          savedAt: new Date().toISOString(),
+          reason,
+          data: JSON.parse(payload),
+        }, null, 1))
+      } catch (e) { /* 忽略 */ }
+      writeMeta()
+      lastError = ''
+    } catch (e) {
+      lastError = `本地写入失败：${e.message || e}`
+    }
   }
+  lastWritten = payload
+  try { saveRemote(KEY, { ...JSON.parse(payload), savedAt }) } catch (e) { /* 忽略 */ }
+  return true
 }
 
 function scheduleSave() {
@@ -237,6 +273,11 @@ function flushSave() {
   if (typeof window === 'undefined') return
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
   saveNow('flush')
+}
+
+// 输入框失焦时立即落盘，不必等 400ms 防抖
+export function flushMapSave() {
+  flushSave()
 }
 
 // 手动导出一份完整存档，便于外部工具直接查看

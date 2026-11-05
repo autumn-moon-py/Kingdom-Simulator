@@ -20,7 +20,7 @@ watch(view, (value) => {
 </script>
 
 <template>
-  <main class="wide">
+  <main class="wide" :class="'view-' + view">
     <nav class="viewTabs">
       <button class="viewTab" :class="{ on: view === 'map' }" @click="view = 'map'">战役地图</button>
       <button class="viewTab" :class="{ on: view === 'kingdom' }" @click="view = 'kingdom'">王国经营</button>
@@ -31,13 +31,24 @@ watch(view, (value) => {
 </template>
 
 <style scoped>
-.wide { max-width: 1500px; }
-.viewTabs { display: flex; gap: 4px; margin: 0 0 18px; border-bottom: 1px solid var(--rule); }
+.wide { max-width: 1500px; padding-left: 92px; }
+.wide.view-map { padding-top: 0; }
+.viewTabs {
+  position: fixed; left: 0; top: 50%; transform: translateY(-50%); z-index: 40;
+  display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 16px 10px;
+  border-bottom: 0; border-right: 1px solid var(--rule); background: var(--paper);
+}
 .viewTab {
-  appearance: none; margin-bottom: -1px; padding: 9px 14px 8px;
-  border: 0; border-bottom: 2px solid transparent; background: transparent;
-  color: var(--ink-2); font: inherit; font-size: 13px; letter-spacing: 0.08em; cursor: pointer;
+  appearance: none; margin-bottom: 0; padding: 18px 10px;
+  border: 0; border-left: 2px solid transparent; background: transparent;
+  color: var(--ink-2); font: inherit; font-size: 15px; letter-spacing: 0.2em;
+  line-height: 1; writing-mode: vertical-rl; cursor: pointer;
 }
 .viewTab:hover { color: var(--ochre); }
-.viewTab.on { color: var(--ink); border-bottom-color: var(--ochre); font-weight: 600; }
+.viewTab.on { color: var(--ink); border-left-color: var(--ochre); font-weight: 600; }
+@media (max-width: 760px) {
+  .wide { padding-left: 64px; }
+  .viewTabs { padding: 12px 6px; }
+  .viewTab { padding: 14px 7px; font-size: 13px; letter-spacing: 0.16em; }
+}
 </style>

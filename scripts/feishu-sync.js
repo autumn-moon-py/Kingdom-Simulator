@@ -1,4 +1,4 @@
-// 飞书同步桥：Vite 开发服务器里的本机接口，接收前端导出的地图图片与报告 XML，
+// 飞书同步桥：Vite 开发服务器里的本机接口，接收前端导出的地图图片，
 // 调用 lark-cli 重写文档「地图」章节的自动区，保留分隔线以下的手写内容。
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -9,16 +9,14 @@ import path from 'node:path'
 const execFileAsync = promisify(execFile)
 
 const DOC_TOKEN = process.env.FEISHU_SYNC_DOC || 'VVoLdb8kloVHT6xVzq3c3ltGn1d'
-const DOC_URL = `https://tcnpa5l7f9cv.feishu.cn/docx/${DOC_TOKEN}`
 const HEADING = '地图'
-const DIVIDER_KEY = '以下为手写区'
-const DIVIDER_XML = '<hr/><p>以下为手写区，同步不会覆盖。</p>'
-const IMAGE_TOKEN = '<!--MAP_IMAGE-->'
 // lark-cli 只接受工作目录内的本地图片，临时图放在项目根目录并在上传后删除
-const IMAGE_XML = (file) => `<img path="@./${path.basename(file)}" width="820" caption="失窃之地探索地图"/>`
+// 图片后留一个空段落，避免正文紧贴图片
+const IMAGE_XML = (file) => `<img path="@./${path.basename(file)}" width="820"/><p></p>`
 const MAX_BODY = 30 * 1024 * 1024
 
 // Trae 自带的 lark-cli 不一定在用户终端的 PATH 里，按环境变量 → PATH → 插件目录依次查找
+const LARK_NAMES = new Set(['lark-cli', 'lark-cli.exe', 'lark-cli.cmd', 'lark-cli.bat'])
 async function findInDir(dir, depth) {
   if (depth < 0) return ''
   let entries
@@ -33,7 +31,7 @@ async function findInDir(dir, depth) {
     if (entry.isDirectory()) {
       const sub = await findInDir(full, depth - 1)
       if (sub) hits.push(sub)
-    } else if (entry.name === 'lark-cli') {
+    } else if (LARK_NAMES.has(entry.name.toLowerCase())) {
       hits.push(full)
     }
   }
@@ -42,13 +40,16 @@ async function findInDir(dir, depth) {
 }
 
 let larkPath = ''
+const cleanPath = (p) => String(p || '').trim().replace(/^\\\\\?\\/, '')
 export async function resolveLarkCli() {
   if (larkPath) return larkPath
   const candidates = []
-  if (process.env.FEISHU_LARK_CLI) candidates.push(process.env.FEISHU_LARK_CLI)
+  if (process.env.FEISHU_LARK_CLI) candidates.push(cleanPath(process.env.FEISHU_LARK_CLI))
   try {
-    const { stdout } = await execFileAsync('which', ['lark-cli'])
-    if (stdout.trim()) candidates.push(stdout.trim())
+    const whichCmd = process.platform === 'win32' ? 'where' : 'which'
+    const { stdout } = await execFileAsync(whichCmd, ['lark-cli'])
+    const first = stdout.split(/\r?\n/).map((s) => s.trim()).find(Boolean)
+    if (first) candidates.push(cleanPath(first))
   } catch (e) { /* PATH 里没有就继续找 */ }
   for (const candidate of candidates) {
     try {
@@ -131,21 +132,24 @@ export function topLevelBlocks(xml) {
   return { body, blocks }
 }
 
-// 找出标题与手写区分隔线，返回本次要清掉的自动区 block
+// 找出标题后连续的自动块（地图图片与空段落），遇到手写内容就停
 export function planSectionUpdate(xml) {
   const { body, blocks } = topLevelBlocks(xml)
   const headingIndex = blocks.findIndex((b) => b.tag === 'h1')
   if (headingIndex < 0) throw new Error('地图章节结构异常：没有找到标题块')
-  const dividerIndex = blocks.findIndex((b) => b.start > blocks[headingIndex].start
-    && body.slice(b.start, b.end).includes(DIVIDER_KEY))
-  const autoStart = headingIndex + 1
-  // 分隔线本身也重建，避免重复累积；手写区在分隔线之后，不受影响
-  const autoEnd = dividerIndex > headingIndex ? dividerIndex : blocks.length - 1
+  const after = blocks.slice(headingIndex + 1)
+  let end = 0
+  while (end < after.length) {
+    const b = after[end]
+    const raw = body.slice(b.start, b.end)
+    const autoImage = b.tag === 'img' || b.tag === 'image'
+    const emptyP = b.tag === 'p' && !raw.replace(/<[^>]*>/g, '').trim()
+    if (!autoImage && !emptyP) break
+    end += 1
+  }
   return {
     headingId: blocks[headingIndex].id,
-    remove: autoEnd >= autoStart
-      ? blocks.slice(autoStart, autoEnd + 1).filter((b) => b.id).map((b) => b.id)
-      : [],
+    remove: after.slice(0, end).filter((b) => b.id).map((b) => b.id),
   }
 }
 
@@ -170,10 +174,9 @@ function stripDataUrl(image) {
   return raw.startsWith('data:') && i >= 0 ? raw.slice(i + 1) : raw
 }
 
-async function syncToFeishu({ image, content }) {
+async function syncToFeishu({ image }) {
   const base64 = stripDataUrl(image)
   if (!base64) throw new Error('没有收到地图图片')
-  if (typeof content !== 'string' || !content.trim()) throw new Error('没有收到报告正文')
 
   const headingId = await findHeadingId()
   const sectionXml = await fetchSection(headingId)
@@ -188,20 +191,14 @@ async function syncToFeishu({ image, content }) {
   const tmpFile = path.resolve(`stolen-lands-map-${stamp}.png`)
   await writeFile(tmpFile, Buffer.from(base64, 'base64'))
   try {
-    // 分隔线每次重建，始终作为自动区的下边界
-    const xml = content.replace(IMAGE_TOKEN, IMAGE_XML(tmpFile)) + DIVIDER_XML
-    await insertAfter(headingId, xml)
+    // 只写地图图片，不再插入手写区分隔线
+    await insertAfter(headingId, IMAGE_XML(tmpFile))
   } finally {
     await unlink(tmpFile).catch(() => {})
   }
 
   const after = await fetchSection(headingId)
-  return {
-    url: DOC_URL,
-    removed: autoBlocks.length,
-    hasDivider: after.includes(DIVIDER_KEY),
-    hasImage: after.includes('<img'),
-  }
+  return { hasImage: after.includes('<img') }
 }
 
 function readBody(req) {
@@ -227,28 +224,31 @@ function isLocal(req) {
   return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1'
 }
 
+export async function handleFeishuSync(req, res) {
+  const send = (code, payload) => {
+    res.statusCode = code
+    res.setHeader('Content-Type', 'application/json; charset=utf-8')
+    res.end(JSON.stringify(payload))
+  }
+  if (!isLocal(req)) return send(403, { ok: false, error: '只允许本机调用同步接口' })
+  if (req.method !== 'POST') return send(405, { ok: false, error: '只支持 POST' })
+  try {
+    const raw = await readBody(req)
+    const payload = JSON.parse(raw || '{}')
+    const data = await syncToFeishu(payload)
+    send(200, { ok: true, data })
+  } catch (err) {
+    console.error('[feishu-sync]', err?.message || err)
+    send(500, { ok: false, error: err?.message || String(err) })
+  }
+}
+
 export function feishuSync() {
   return {
     name: 'feishu-map-sync',
     apply: 'serve',
     configureServer(server) {
-      server.middlewares.use('/api/feishu-sync', async (req, res) => {
-        const send = (code, payload) => {
-          res.statusCode = code
-          res.setHeader('Content-Type', 'application/json; charset=utf-8')
-          res.end(JSON.stringify(payload))
-        }
-        if (!isLocal(req)) return send(403, { ok: false, error: '只允许本机调用同步接口' })
-        if (req.method !== 'POST') return send(405, { ok: false, error: '只支持 POST' })
-        try {
-          const raw = await readBody(req)
-          const payload = JSON.parse(raw || '{}')
-          const data = await syncToFeishu(payload)
-          send(200, { ok: true, data })
-        } catch (err) {
-          send(500, { ok: false, error: err?.message || String(err) })
-        }
-      })
+      server.middlewares.use('/api/feishu-sync', handleFeishuSync)
     },
   }
 }

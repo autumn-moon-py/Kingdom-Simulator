@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
-import { state, exportSaveFile } from '../mapStore.js'
-import { buildMapReport, reportToXml } from '../mapReport.js'
+import { state, exportSaveFile, flushMapSave } from '../mapStore.js'
+import { saveRemote } from '../persist.js'
 import mapData from '../data/mapLabels.json'
 import regionCells from '../data/regionCells.json'
 import hexes from '../data/hexes.json'
@@ -26,31 +26,43 @@ function regionOf(code) {
   return best
 }
 function regionColor(code) { const i = REGIONS.findIndex((r) => r[0] === regionOf(code)); const h = ((i < 0 ? 0 : i) * 47) % 360; return `hsl(${h} 55% 42%)` }
-const REGION_LIST = REGIONS.map(([code, name]) => ({ code, name }))
 
 /* ---------- 界面偏好 ---------- */
 const UI_KEY = 'kingdom-map-ui-v1'
 function loadUiPrefs() {
   const defaults = {
-    showRegions: true, showNames: true, showBorders: true,
+    showRegions: true, showNames: true,
     showPins: true, onlyMarked: false,
+    showColumns: true, colLeft: 1, colRight: 28,
     scopeCodes: REGIONS.map(([code]) => code),
+    sheetIds: ['m3'], activeSheet: 'm3',
   }
-  if (typeof localStorage === 'undefined') return defaults
+  let p = null
   try {
-    const raw = localStorage.getItem(UI_KEY)
-    if (!raw) return defaults
-    const p = JSON.parse(raw)
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(UI_KEY) : null
+    if (raw) p = JSON.parse(raw)
+  } catch (e) { /* 忽略 */ }
+  // localStorage 被禁用时，退回启动阶段从文件存档取到的偏好
+  if (!p && typeof window !== 'undefined') p = window.__kingdomUiPrefs || null
+  if (!p) return defaults
+  try {
     const codes = Array.isArray(p.scopeCodes)
       ? p.scopeCodes.filter((c) => REGIONS.some(([r]) => r === c))
       : defaults.scopeCodes
+    const sheetIds = Array.isArray(p.sheetIds)
+      ? p.sheetIds.filter((id) => maps.some((m) => m.id === id))
+      : defaults.sheetIds
     return {
       showRegions: typeof p.showRegions === 'boolean' ? p.showRegions : defaults.showRegions,
       showNames: typeof p.showNames === 'boolean' ? p.showNames : defaults.showNames,
-      showBorders: typeof p.showBorders === 'boolean' ? p.showBorders : defaults.showBorders,
       showPins: typeof p.showPins === 'boolean' ? p.showPins : defaults.showPins,
       onlyMarked: typeof p.onlyMarked === 'boolean' ? p.onlyMarked : defaults.onlyMarked,
+      showColumns: typeof p.showColumns === 'boolean' ? p.showColumns : defaults.showColumns,
+      colLeft: Number.isFinite(Number(p.colLeft)) ? Math.round(Number(p.colLeft)) : defaults.colLeft,
+      colRight: Number.isFinite(Number(p.colRight)) ? Math.round(Number(p.colRight)) : defaults.colRight,
       scopeCodes: codes,
+      sheetIds: sheetIds.length ? sheetIds : defaults.sheetIds,
+      activeSheet: maps.some((m) => m.id === p.activeSheet) ? p.activeSheet : defaults.activeSheet,
     }
   } catch (e) {
     return defaults
@@ -83,15 +95,24 @@ function whenReady(img) {
 }
 
 /* ---------- 选择状态 ---------- */
-const selectedIds = ref(['m3'])
-const activeId = ref('m3')
+const selectedIds = ref([...uiPrefs.sheetIds])
+const activeId = ref(uiPrefs.sheetIds.includes(uiPrefs.activeSheet) ? uiPrefs.activeSheet : uiPrefs.sheetIds[0])
 const shownMaps = computed(() => maps.filter((m) => selectedIds.value.includes(m.id)))
 // 连续画布：取所选图幅的横向并集（纵向固定为四图共同覆盖的地图带）
+// 列区域生效时再与左右边界取交集，让预览、导出和飞书同步都按列裁剪
 const view = computed(() => {
   const sel = shownMaps.value
   const x0 = Math.min(...sel.map((m) => m.left))
   const x1 = Math.max(...sel.map((m) => m.left + m.w))
-  return { x: x0, w: x1 - x0, h: layout.h }
+  const ci = columnInfo
+  if (!ci.count) return { x: x0, w: x1 - x0, h: layout.h }
+  const l = Math.min(Math.max(Math.round(Number(colLeft.value) || 1), 1), ci.count)
+  const r = Math.min(Math.max(Math.round(Number(colRight.value) || ci.count), l), ci.count)
+  const nx0 = Math.max(x0, ci.left + (l - 1) * ci.step)
+  const nx1 = Math.min(x1, ci.left + r * ci.step)
+  // 所选图幅和列范围不相交时退回整段并集，避免只剩空白
+  if (nx1 - nx0 < ci.step * 0.2) return { x: x0, w: x1 - x0, h: layout.h }
+  return { x: nx0, w: nx1 - nx0, h: layout.h }
 })
 const activeMap = computed(() => maps.find((m) => m.id === activeId.value) || maps[0])
 const selKey = ref('RL1')
@@ -287,23 +308,19 @@ function labelStatus(l, geo) {
 }
 function shownFor(geo) {
   const scoped = geo.here.filter((l) => scopeSet.value.has(regionOf(l.code)))
-  // 勾选只代表「显示全部标点」；未勾选时仍保留已探索/已占据的编号，状态不会在图上丢失
-  let out = showPins.value ? scoped : scoped.filter((l) => {
-    const st = labelStatus(l, geo)
-    return st.claimed || st.explored
-  })
-  if (onlyMarked.value) out = out.filter((l) => {
+  // 「全部标点」优先：勾选时始终显示全部编号点，不被下方的状态筛选削减
+  if (showPins.value) return scoped
+  if (!onlyMarked.value) return []
+  // 「全部标点」未勾选时，仍保留已探索/占据/备注格的编号点
+  const out = scoped.filter((l) => {
     const st = labelStatus(l, geo)
     return st.claimed || st.explored || st.noted
   })
-  // 当前选中的格即使落在范围外也留着，否则「跳到编号」会跳到看不见的位置
+  // 当前选中的格即使未标记也留着，避免「跳到编号」后看不见
   const cur = geo.here.find((l) => l.code === selKey.value)
   return cur && !out.includes(cur) ? [...out, cur] : out
 }
-<<<<<<< HEAD
 
-=======
->>>>>>> 215fe5e (feat: 新增王国经营功能，支持地图与文件存档同步)
 // 左缘渐隐宽度：前一张图幅与本图幅的重叠像素（相邻裁片重叠 5–25px）
 function leftFade(m) {
   const i = maps.findIndex((x) => x.id === m.id)
@@ -509,6 +526,11 @@ function panPos(x, y) {
     top: ((y / v.h) * 100).toFixed(3) + '%',
   }
 }
+// 列号只需要横向百分比，纵向固定贴在地图顶边
+function panX(x) {
+  const v = view.value
+  return (((x - v.x) / v.w) * 100).toFixed(3) + '%'
+}
 
 // 点空白处取消选中：只放过地图、侧栏和各类可交互控件，工具栏/页面空白都算空白
 function onDocClick(e) {
@@ -531,20 +553,29 @@ function onKey(e) {
 /* ---------- 区域显示 ---------- */
 const showRegions = ref(uiPrefs.showRegions)    // 区域色块
 const showNames = ref(uiPrefs.showNames)        // 区域名称
-const showBorders = ref(uiPrefs.showBorders)    // 区域边界线
+const showColumns = ref(uiPrefs.showColumns)    // 列边界与列号（仅预览）
+const colLeft = ref(uiPrefs.colLeft)            // 列区域左边界
+const colRight = ref(uiPrefs.colRight)          // 列区域右边界
 // 勾选框与区域筛选记忆到本地，下次打开沿用
-watch([showRegions, showNames, showBorders, showPins, onlyMarked, scopeCodes], () => {
-  if (typeof localStorage === 'undefined') return
-  try {
-    localStorage.setItem(UI_KEY, JSON.stringify({
-      showRegions: showRegions.value,
-      showNames: showNames.value,
-      showBorders: showBorders.value,
-      showPins: showPins.value,
-      onlyMarked: onlyMarked.value,
-      scopeCodes: scopeCodes.value,
-    }))
-  } catch (e) { /* 忽略 */ }
+watch([showRegions, showNames, showPins, onlyMarked, showColumns, colLeft, colRight, scopeCodes, selectedIds, activeId], () => {
+  const prefs = {
+    showRegions: showRegions.value,
+    showNames: showNames.value,
+    showPins: showPins.value,
+    onlyMarked: onlyMarked.value,
+    showColumns: showColumns.value,
+    colLeft: colLeft.value,
+    colRight: colRight.value,
+    scopeCodes: scopeCodes.value,
+    sheetIds: selectedIds.value,
+    activeSheet: activeId.value,
+    updatedAt: Date.now(),
+  }
+  // 本地立即记忆，同时写一份到文件存档，换浏览器或清缓存后也能恢复
+  if (typeof localStorage !== 'undefined') {
+    try { localStorage.setItem(UI_KEY, JSON.stringify(prefs)) } catch (e) { /* 忽略 */ }
+  }
+  saveRemote(UI_KEY, prefs)
 }, { deep: true })
 // 区域归属来自内置数据；同一物理格跨图幅拆成两半时统一区域，避免一格两属
 const regionMap = computed(() => {
@@ -620,6 +651,7 @@ const aliases = computed(() => {
   return out
 })
 // 区域色块画在整张全景上，避免在图幅边缘被裁成竖条；同一物理格只画一次
+// 区域色块始终渲染全部区域格，不受「仅已探索/占据/备注」影响
 const regionShapes = computed(() => {
   if (!showRegions.value) return []
   const seen = new Set()
@@ -637,30 +669,6 @@ const regionShapes = computed(() => {
         .map(([x, y]) => `${(x + m.left).toFixed(1)},${(y + m.top).toFixed(1)}`)
         .join(' ')
       out.push({ key: c.key, pts, color: regionColor(code) })
-    }
-  }
-  return out
-})
-// 占据/备注同样画在全景层：跨图幅的同一物理格只画一次，接缝处不会叠出深色竖条
-const stateShapes = computed(() => {
-  const seen = new Set()
-  const out = []
-  for (const m of shownMaps.value) {
-    const geo = geomOf(m)
-    const g = geo.g
-    for (const c of geo.cells) {
-      const group = groupKeys(c.key)
-      if (seen.has(group[0])) continue
-      const code = geo.codeOfCell[c.key] || plainInfo.value.codeOfKey[c.key]
-      const marked = (obj) => !!obj[c.key] || group.some((k) => !!obj[k]) || !!(code && obj[code])
-      const claimed = marked(state.hexClaimed)
-      const noted = marked(state.hexNotes)
-      if (!claimed && !noted) continue
-      seen.add(group[0])
-      const pts = cellVerts(g, c.q, c.r)
-        .map(([x, y]) => `${(x + m.left).toFixed(1)},${(y + m.top).toFixed(1)}`)
-        .join(' ')
-      out.push({ key: c.key, pts, cls: { claimed, noted: !claimed } })
     }
   }
   return out
@@ -687,7 +695,6 @@ function shapesForGroup(group) {
 }
 const hoverShapes = computed(() => shapesForGroup(hoverGroup.value))
 const selShapes = computed(() => shapesForGroup(selGroup.value))
-const NEIGHBORS = [[1, 0, 1], [-1, 0, 4], [0, 1, 2], [0, -1, 5], [1, -1, 0], [-1, 1, 3]]
 // 物理格：跨图幅去重，一块真实地只留一份，格点直接换算到全景坐标
 const physCells = (() => {
   const out = []
@@ -710,6 +717,43 @@ const physCells = (() => {
   }
   return out
 })()
+/* ---------- 列区域：按横向完整的物理格列切分全景 ---------- */
+// 图幅 1 左侧、图幅 4 右侧被裁掉的半格不参与列划分，剩余完整格列正好 28 列
+const columnInfo = (() => {
+  const full = physCells.filter((pc) => pc.x - pc.w / 2 >= -0.5 && pc.x + pc.w / 2 <= layout.w + 0.5)
+  if (!full.length) return { first: 0, step: 1, left: 0, right: layout.w, count: 0 }
+  let minX = Infinity, maxX = -Infinity, sumW = 0
+  for (const pc of full) {
+    minX = Math.min(minX, pc.x)
+    maxX = Math.max(maxX, pc.x)
+    sumW += pc.w
+  }
+  const avgW = sumW / full.length
+  const count = Math.max(1, Math.round((maxX - minX) / avgW) + 1)
+  const step = count > 1 ? (maxX - minX) / (count - 1) : avgW
+  return { first: minX, step, left: minX - step / 2, right: maxX + step / 2, count }
+})()
+const columnCount = columnInfo.count
+const columnLines = computed(() => {
+  const out = []
+  for (let k = 0; k <= columnInfo.count; k++) out.push({ k, x: columnInfo.left + k * columnInfo.step })
+  return out
+})
+const columnMarks = computed(() => {
+  const out = []
+  for (let n = 1; n <= columnInfo.count; n++) out.push({ n, x: columnInfo.left + (n - 0.5) * columnInfo.step })
+  return out
+})
+function normalizeCols() {
+  const n = columnCount
+  let l = Math.min(Math.max(Math.round(Number(colLeft.value) || 1), 1), n)
+  let r = Math.min(Math.max(Math.round(Number(colRight.value) || n), 1), n)
+  if (l > r) [l, r] = [r, l]
+  colLeft.value = l
+  colRight.value = r
+}
+normalizeCols()
+
 // 编号格（模组标注地点）的格键索引，用来把特殊格与普通格分开
 const labelCodeOfKey = (() => {
   const out = {}
@@ -718,40 +762,9 @@ const labelCodeOfKey = (() => {
   }
   return out
 })()
-// 同步报告用的物理格索引：一格一份，状态与备注按整组取
-const reportCells = computed(() => {
-  const shown = new Set(shownMaps.value.map((m) => m.id))
-  const out = []
-  for (const pc of physCells) {
-    const group = pc.group
-    if (!group.some((k) => shown.has(k.split(':')[0]))) continue
-    const region = regionMap.value[group[0]] || ''
-    if (!region || !scopeSet.value.has(region)) continue
-    const code = group.map((k) => plainInfo.value.codeOfKey[k]).find(Boolean) || ''
-    const noteKey = group.find((k) => !!state.hexNotes[k]) || (code && state.hexNotes[code] ? code : '')
-    out.push({
-      code,
-      region,
-      special: group.some((k) => !!labelCodeOfKey[k]),
-      explored: group.some((k) => !!state.hexExplored[k]) || !!(code && state.hexExplored[code]),
-      noted: !!noteKey,
-      note: noteKey ? state.hexNotes[noteKey] : '',
-      name: byCode[code] ? byCode[code].name.split(' ')[0] : '',
-    })
-  }
-  return out
-})
-const viewLabel = computed(() => {
-  const sheetLabel = shownMaps.value.length === maps.length
-    ? `全图 ${maps.map((m) => m.id).join('–')}`
-    : `图幅 ${shownMaps.value.map((m) => m.id).join('、')}`
-  const regionLabel = scopeAll.value
-    ? '全部区域'
-    : scopeCodes.value.map((c) => REGIONS.find((r) => r[0] === c)?.[1] || c).join('、')
-  return `${sheetLabel} · ${regionLabel}`
-})
 // 格状态也画在全景层：同一物理格只画完整的一格，避免在图幅接缝处被裁成矩形色块
 const stateShapes = computed(() => {
+  if (!onlyMarked.value) return []
   const seen = new Set()
   const shapes = []
   for (const m of shownMaps.value) {
@@ -776,61 +789,6 @@ const stateShapes = computed(() => {
     }
   }
   return shapes
-})
-// 邻格查找：按约一格宽的粗网格索引，只找中心最近的一格
-const physIndex = (() => {
-  const BS = 48
-  const bucket = new Map()
-  for (const pc of physCells) {
-    const k = `${Math.floor(pc.x / BS)},${Math.floor(pc.y / BS)}`
-    if (!bucket.has(k)) bucket.set(k, [])
-    bucket.get(k).push(pc)
-  }
-  return { BS, bucket }
-})()
-function physAt(x, y, tol) {
-  const { BS, bucket } = physIndex
-  const bx = Math.floor(x / BS), by = Math.floor(y / BS)
-  let best = null
-  for (let dx = -1; dx <= 1; dx++) {
-    for (let dy = -1; dy <= 1; dy++) {
-      const list = bucket.get(`${bx + dx},${by + dy}`)
-      if (!list) continue
-      for (const pc of list) {
-        const d = Math.hypot(pc.x - x, pc.y - y)
-        if (d <= tol && (!best || d < best.d)) best = { pc, d }
-      }
-    }
-  }
-  return best ? best.pc : null
-}
-// 全景边界：按物理格逐条六边形边判断两侧区域，不同才画；同一条边只画一次
-// 邻格在全部图幅里找，所以接缝处不会断线、也不会重复画线
-const borderPath = computed(() => {
-  if (!showBorders.value) return ''
-  const rm = regionMap.value
-  const shownIds = new Set(shownMaps.value.map((m) => m.id))
-  const seen = new Set()
-  let d = ''
-  for (const pc of physCells) {
-    const code = rm[pc.group[0]]
-    if (!code || !scopeSet.value.has(code)) continue
-    if (!pc.group.some((k) => shownIds.has(k.split(':')[0]))) continue
-    for (const [dq, dr, ei] of NEIGHBORS) {
-      const [nx, ny] = cellCenter(pc.g, pc.q + dq, pc.r + dr)
-      const nb = physAt(nx + pc.left, ny + pc.top, pc.w * 0.45)
-      if (!nb) continue
-      if (rm[nb.group[0]] === code) continue
-      const [ax, ay] = pc.verts[ei]
-      const [bx, by] = pc.verts[(ei + 1) % 6]
-      // 同一条边两侧会各算一次，按中点分桶去重
-      const ek = `${Math.round((ax + bx) / 8)},${Math.round((ay + by) / 8)}`
-      if (seen.has(ek)) continue
-      seen.add(ek)
-      d += `M${ax.toFixed(1)},${ay.toFixed(1)}L${bx.toFixed(1)},${by.toFixed(1)}`
-    }
-  }
-  return d
 })
 // 区域名标注：放在区域重心处（不吸附到格子中心）；重心落到区域外时退到最近的格
 const regionLabels = computed(() => {
@@ -883,6 +841,13 @@ const asideTitle = computed(() => {
 const exporting = ref('')
 const syncing = ref('')
 const syncMsg = ref('')
+const toast = ref('')
+let toastTimer = null
+function showToast(text) {
+  toast.value = text
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { toast.value = '' }, 2000)
+}
 const wrapEl = ref(null)
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath()
@@ -928,13 +893,6 @@ function drawRegionFills(ctx, ox) {
   }
   ctx.restore()
 }
-<<<<<<< HEAD
-// 已占据 / 已备注（全景坐标）
-function drawState(ctx, ox) {
-  for (const c of stateShapes.value) {
-    tracePath(ctx, ptsOf(c.pts).map(([x, y]) => [x - ox, y]))
-    ctx.fillStyle = c.cls.claimed ? 'rgba(77, 122, 77, 0.28)' : 'rgba(176, 138, 69, 0.24)'
-=======
 // 已探索 / 已占据（全景坐标，与页面同一个全景层）
 // 状态色比区域填色更饱和并带描边，保证不与 18% 的区域底色混淆
 const STATE_STYLE = {
@@ -946,7 +904,6 @@ function drawState(ctx, ox, k) {
     const st = STATE_STYLE[c.cls.claimed ? 'claimed' : 'explored']
     tracePath(ctx, ptsOf(c.pts).map(([x, y]) => [x - ox, y]))
     ctx.fillStyle = st.fill
->>>>>>> 215fe5e (feat: 新增王国经营功能，支持地图与文件存档同步)
     ctx.fill()
     ctx.lineWidth = 1.5 * k
     ctx.strokeStyle = st.stroke
@@ -959,7 +916,9 @@ function drawPins(ctx, s, k) {
     const px = l.x, py = l.y
     ctx.beginPath()
     ctx.arc(px, py, 5 * k, 0, Math.PI * 2)
-    ctx.fillStyle = state.hexClaimed[l.code] ? '#4d7a4d' : state.hexExplored[l.code] ? '#3f4f86' : '#7a5a25'
+    ctx.fillStyle = onlyMarked.value
+      ? (state.hexClaimed[l.code] ? '#4d7a4d' : state.hexExplored[l.code] ? '#3f4f86' : '#7a5a25')
+      : '#7a5a25'
     ctx.fill()
     ctx.lineWidth = 2 * k
     ctx.strokeStyle = '#fbf9f3'
@@ -975,18 +934,6 @@ function drawPins(ctx, s, k) {
     ctx.strokeRect(px - 6 * k, py - 6 * k, 12 * k, 12 * k)
     drawChip(ctx, p.name, px, py - 12 * k, k)
   }
-}
-// 区域边界：与页面同一条路径、同一颜色
-function drawBorders(ctx, ox, k) {
-  if (!borderPath.value) return
-  ctx.save()
-  ctx.translate(-ox, 0)
-  ctx.strokeStyle = 'rgba(47, 42, 30, 0.62)'
-  ctx.lineWidth = 2 * k
-  ctx.lineCap = 'round'
-  ctx.lineJoin = 'round'
-  ctx.stroke(new Path2D(borderPath.value))
-  ctx.restore()
 }
 // 区域名标注：与页面的标签样式一致
 function drawRegionNames(ctx, ox, k) {
@@ -1040,13 +987,12 @@ async function renderMapCanvas() {
     ctx.drawImage(src, s.m.left - v.x, s.m.top, s.m.w, s.m.h)
   }
 
-  // 与页面同样的叠层顺序：区域填色 → 占据/备注 → 边界 → 标点 → 区域名
+  // 与页面同样的叠层顺序：区域填色 → 状态 → 标点 → 区域名
   // 线宽、字号、标记按预览缩放比换算，导出图看起来就是预览的样子
   const cw = wrapEl.value?.clientWidth || 0
   const k = cw ? v.w / cw : 2
   drawRegionFills(ctx, v.x)
   drawState(ctx, v.x, k)
-  drawBorders(ctx, v.x, k)
   for (const s of sheets.value) {
     ctx.save()
     ctx.translate(s.m.left - v.x, s.m.top)
@@ -1060,40 +1006,7 @@ async function exportMap() {
   if (exporting.value || !sheets.value.length) return
   exporting.value = '正在导出…'
   try {
-<<<<<<< HEAD
-    const v = view.value
-    const canvas = document.createElement('canvas')
-    canvas.width = v.w
-    canvas.height = v.h
-    const ctx = canvas.getContext('2d')
-    ctx.fillStyle = '#f4f1e9'
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-    // 底图按实测偏移铺开；相邻重叠区的左缘渐隐，接缝不可见
-    for (const s of sheets.value) {
-      const img = await whenReady(cachedImage(s.m))
-      const src = s.fade ? fadeLeft(img, s.m.w, s.m.h, s.fade) : img
-      ctx.drawImage(src, s.m.left - v.x, s.m.top, s.m.w, s.m.h)
-    }
-
-    // 与页面同样的叠层顺序：区域填色 → 占据/备注 → 边界 → 标点 → 区域名
-    // 线宽、字号、标记按预览缩放比换算，导出图看起来就是预览的样子
-    const cw = wrapEl.value?.clientWidth || 0
-    const k = cw ? v.w / cw : 2
-    drawRegionFills(ctx, v.x)
-    drawState(ctx, v.x)
-    drawBorders(ctx, v.x, k)
-    for (const s of sheets.value) {
-      ctx.save()
-      ctx.translate(s.m.left - v.x, s.m.top)
-      drawPins(ctx, s, k)
-      ctx.restore()
-    }
-    drawRegionNames(ctx, v.x, k)
-
-=======
     const canvas = await renderMapCanvas()
->>>>>>> 215fe5e (feat: 新增王国经营功能，支持地图与文件存档同步)
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
     if (!blob) { exporting.value = '导出失败'; return }
     const a = document.createElement('a')
@@ -1107,31 +1020,22 @@ async function exportMap() {
     exporting.value = '导出失败'
   }
 }
-// 一键同步：图片与统计都按当前视图（图幅、区域筛选）生成
+// 一键同步：只把当前视图的地图图片写入飞书
 async function syncToFeishu() {
   if (syncing.value || !sheets.value.length) return
   syncing.value = '正在同步…'
   syncMsg.value = ''
   try {
-    const report = buildMapReport(reportCells.value, {
-      generatedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
-      viewLabel: viewLabel.value,
-      regions: REGION_LIST,
-    })
     const canvas = await renderMapCanvas()
     const res = await fetch('/api/feishu-sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        image: canvas.toDataURL('image/png'),
-        content: reportToXml(report, { regions: REGION_LIST }),
-      }),
+      body: JSON.stringify({ image: canvas.toDataURL('image/png') }),
     })
     const data = await res.json().catch(() => ({}))
     if (!res.ok || !data.ok) throw new Error(data.error || '同步失败')
-    syncing.value = '已同步'
-    syncMsg.value = `已写入飞书：已探索 ${report.totals.explored}/${report.totals.cells} 格，待探索 ${report.totals.unexplored} 格`
-    setTimeout(() => { syncing.value = '' }, 2000)
+    syncing.value = ''
+    showToast('已写入')
   } catch (err) {
     syncing.value = ''
     syncMsg.value = `同步失败：${err?.message || err}`
@@ -1170,6 +1074,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('keydown', onKey)
   if (hoverRaf) cancelAnimationFrame(hoverRaf)
+  if (toastTimer) clearTimeout(toastTimer)
 })
 </script>
 
@@ -1212,12 +1117,21 @@ onBeforeUnmount(() => {
         </details>
       </div>
       <div class="field">
+        <label>列区域</label>
+        <div class="colRange">
+          <input type="number" min="1" :max="columnCount" v-model.number="colLeft" class="compact colInput" @change="normalizeCols" />
+          <span class="muted">–</span>
+          <input type="number" min="1" :max="columnCount" v-model.number="colRight" class="compact colInput" @change="normalizeCols" />
+          <span class="muted">/ {{ columnCount }}</span>
+        </div>
+      </div>
+      <div class="field">
         <label>跳到编号</label>
-        <input v-model="query" @keyup.enter="jump" maxlength="6" style="width: 68px" />
+        <input v-model="query" @keyup.enter="jump" maxlength="6" class="compact" style="width: 68px" />
       </div>
       <div class="field">
         <label>&nbsp;</label>
-        <button class="act" :class="{ on: addMode }" @click="addMode = !addMode">
+        <button class="act compact" :class="{ on: addMode }" @click="addMode = !addMode">
           {{ addMode ? '点击地图落点…' : '添加标记' }}
         </button>
       </div>
@@ -1225,9 +1139,9 @@ onBeforeUnmount(() => {
     <div class="mapBar checks">
       <label class="check"><input type="checkbox" v-model="showRegions" /><span>区域色块</span></label>
       <label class="check"><input type="checkbox" v-model="showNames" /><span>区域名称</span></label>
-      <label class="check"><input type="checkbox" v-model="showBorders" /><span>边界线</span></label>
-      <label class="check" title="勾选显示全部编号点；不勾选时仍显示已探索或已占据的编号"><input type="checkbox" v-model="showPins" /><span>全部标点</span></label>
-      <label class="check"><input type="checkbox" v-model="onlyMarked" /><span>仅已探索/占据/备注</span></label>
+      <label class="check" title="勾选后始终显示全部编号点，不受状态筛选影响"><input type="checkbox" v-model="showPins" /><span>全部标点</span></label>
+      <label class="check" title="勾选后只高亮已探索/已占据/有备注的格；未勾选全部标点时，仅这些格保留编号点"><input type="checkbox" v-model="onlyMarked" /><span>仅已探索/占据/备注</span></label>
+      <label class="check" title="仅预览显示列边界和列号，不写入导出图片"><input type="checkbox" v-model="showColumns" /><span>列号</span></label>
     </div>
     <div class="mapBar acts">
       <button class="act" :disabled="!!exporting" @click="exportMap">{{ exporting || '导出图片' }}</button>
@@ -1287,19 +1201,12 @@ onBeforeUnmount(() => {
           </svg>
           <svg
             class="statelayer"
-<<<<<<< HEAD
             v-memo="[stateShapes, view.x, view.w]"
-=======
->>>>>>> 215fe5e (feat: 新增王国经营功能，支持地图与文件存档同步)
             :viewBox="`${view.x} 0 ${view.w} ${view.h}`"
             preserveAspectRatio="none"
             aria-hidden="true"
           >
-<<<<<<< HEAD
             <polygon v-for="c in stateShapes" :key="'st' + c.key" class="hex-st" :class="c.cls" :points="c.pts" />
-=======
-            <polygon v-for="c in stateShapes" :key="'s' + c.key" class="hex-st" :class="c.cls" :points="c.pts" />
->>>>>>> 215fe5e (feat: 新增王国经营功能，支持地图与文件存档同步)
           </svg>
           <svg
             class="highlightlayer"
@@ -1311,20 +1218,20 @@ onBeforeUnmount(() => {
             <polygon v-for="c in selShapes" :key="'sel' + c.key" class="hex-sel" :points="c.pts" />
           </svg>
           <svg
-            class="borderlayer"
-            v-memo="[borderPath, view.x, view.w]"
+            v-if="showColumns"
+            class="columnlayer"
             :viewBox="`${view.x} 0 ${view.w} ${view.h}`"
             preserveAspectRatio="none"
             aria-hidden="true"
           >
-            <path class="hex-border" :d="borderPath" />
+            <line v-for="b in columnLines" :key="'cl' + b.k" :x1="b.x" :x2="b.x" y1="0" :y2="view.h" class="hex-column" />
           </svg>
           <template v-for="s in sheets" :key="'pin:' + s.m.id">
             <button
               v-for="l in shownFor(s.geo)"
               :key="l.code"
               class="pin"
-              :class="{ sel: l.code === selKey, noted: !!state.hexNotes[l.code], explored: !!state.hexExplored[l.code], claimed: !!state.hexClaimed[l.code] }"
+              :class="{ sel: l.code === selKey, noted: onlyMarked && !!state.hexNotes[l.code], explored: onlyMarked && !!state.hexExplored[l.code], claimed: onlyMarked && !!state.hexClaimed[l.code] }"
               :style="pinPos(s.m, l.x, l.y)"
               @click.stop="pick(l.code)"
             >
@@ -1334,7 +1241,7 @@ onBeforeUnmount(() => {
               v-for="p in s.pins"
               :key="s.m.id + ':' + p.id"
               class="pin mine"
-              :class="{ sel: 'pin:' + p.id === selKey, noted: !!state.hexNotes['pin:' + p.id], explored: !!state.hexExplored['pin:' + p.id], claimed: !!state.hexClaimed['pin:' + p.id] }"
+              :class="{ sel: 'pin:' + p.id === selKey, noted: onlyMarked && !!state.hexNotes['pin:' + p.id], explored: onlyMarked && !!state.hexExplored['pin:' + p.id], claimed: onlyMarked && !!state.hexClaimed['pin:' + p.id] }"
               :style="pinPos(s.m, p.x, p.y)"
               @click.stop="selectPin(s.m.id, p)"
             >
@@ -1348,6 +1255,14 @@ onBeforeUnmount(() => {
               class="regionLabel"
               :style="panPos(l.x, l.y)"
             >{{ l.name }}</span>
+          </div>
+          <div v-if="showColumns" class="labelLayer">
+            <span
+              v-for="c in columnMarks"
+              :key="'cn' + c.n"
+              class="columnNum"
+              :style="{ left: panX(c.x) }"
+            >{{ c.n }}</span>
           </div>
         </div>
       </div>
@@ -1377,21 +1292,27 @@ onBeforeUnmount(() => {
           </label>
           <div class="field" v-if="!curPin">
             <label>别名</label>
-            <input v-model="state.hexAliases[selKey]" maxlength="24" placeholder="有别名时优先显示在地图上" />
+            <input v-model="state.hexAliases[selKey]" maxlength="24" @change="flushMapSave" />
           </div>
           <div class="field">
             <label>备注</label>
-            <textarea v-model="state.hexNotes[selKey]"></textarea>
+            <textarea v-model="state.hexNotes[selKey]" @change="flushMapSave"></textarea>
           </div>
           <button v-if="curPin" class="act" style="margin-top: 12px" @click="removePin">删除这个标记（Delete）</button>
         </template>
       </aside>
     </div>
+    <div v-if="toast" class="toast">{{ toast }}</div>
   </div>
 </template>
 
 <style scoped>
-.mapBar { display: flex; flex-wrap: wrap; gap: 12px 14px; align-items: flex-end; margin-bottom: 8px; }
+.mapBar { display: flex; flex-wrap: wrap; gap: 12px 14px; align-items: flex-start; margin-bottom: 8px; }
+.mapBar > .field > label { font-size: 14px; }
+.mapBar .compact { padding: 4px 9px; font-size: 13px; }
+.colRange { display: flex; align-items: center; gap: 4px; }
+.colRange .colInput { width: 48px; text-align: center; }
+.panel { border-top: 0; }
 /* 勾选框、导出按钮各自单独一行 */
 .mapBar.checks { align-items: center; gap: 6px 18px; margin-bottom: 8px; }
 .mapBar.acts { gap: 10px; margin-bottom: 12px; }
@@ -1403,7 +1324,7 @@ onBeforeUnmount(() => {
 .scopeChips { display: flex; flex-wrap: wrap; gap: 6px; }
 .scopeChip { appearance: none; border: 1px solid var(--rule); background: var(--paper); color: var(--ink-2); border-radius: 999px; padding: 2px 8px; font: inherit; font-size: 12px; cursor: pointer; }
 .scopeChip.on { background: var(--ochre); border-color: var(--ochre); color: var(--paper-2); }
-.sheetPick { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 3px; }
+.sheetPick { display: flex; flex-wrap: wrap; gap: 6px; }
 .sheetBtn { appearance: none; border: 1px solid var(--rule); background: var(--paper-2); color: var(--ink-2); border-radius: 3px; padding: 3px 9px; font: inherit; font-size: 12px; cursor: pointer; }
 .sheetBtn:hover { border-color: var(--rule-hover); color: var(--ink); }
 .sheetBtn.on { border-color: var(--ochre); background: var(--wash-ochre); color: var(--ochre); font-weight: 600; }
@@ -1423,18 +1344,20 @@ onBeforeUnmount(() => {
   mask-image: linear-gradient(to right, rgba(0, 0, 0, 0), #000 var(--fade));
 }
 
-<<<<<<< HEAD
-/* 区域色块、占据/备注、悬浮/选中高亮、边界都用全景坐标，跨图幅接缝也能连续 */
-=======
-/* 区域色块、格状态、悬浮/选中高亮、边界都用全景坐标，跨图幅接缝也能连续 */
->>>>>>> 215fe5e (feat: 新增王国经营功能，支持地图与文件存档同步)
-.regionlayer, .statelayer, .highlightlayer, .borderlayer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+/* 区域色块、格状态、悬浮/选中高亮都用全景坐标，跨图幅接缝也能连续 */
+.regionlayer, .statelayer, .highlightlayer, .columnlayer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .hex-region { stroke: none; fill-opacity: 0.18; }
+/* 列区域：仅预览用的虚线与列号，导出图片不包含 */
+.hex-column { stroke: rgba(96, 80, 54, 0.35); stroke-width: 1; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke; }
+.columnNum {
+  position: absolute; top: 2px; transform: translateX(-50%);
+  padding: 0 4px; border-radius: 2px;
+  background: rgba(246, 242, 233, 0.85);
+  color: #5c5142; font-size: 10px; line-height: 14px; white-space: nowrap;
+}
 /* 格状态：比 18% 的区域底色更饱和，并加描边，避免和区域填色混在一起 */
 .hex-st.claimed { fill: var(--map-claimed); fill-opacity: 0.42; stroke: var(--map-claimed); stroke-opacity: 0.75; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .hex-st.explored { fill: var(--map-explored); fill-opacity: 0.42; stroke: var(--map-explored); stroke-opacity: 0.75; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-/* 区域交界：统一深色细线，颜色只留给填色，避免多色线互相打架 */
-.hex-border { fill: none; stroke: #2f2a1e; stroke-opacity: 0.62; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 /* 区域名标注：固定像素字号，位置跟随全景坐标 */
 .labelLayer { position: absolute; inset: 0; pointer-events: none; }
 .regionLabel {
@@ -1446,6 +1369,19 @@ onBeforeUnmount(() => {
 }
 .hex-hover { fill: var(--ochre); fill-opacity: 0.12; stroke: var(--ochre-soft); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .hex-sel { fill: var(--ochre); fill-opacity: 0.16; stroke: var(--ochre); stroke-width: 2.5; vector-effect: non-scaling-stroke; }
+
+.toast {
+  position: fixed; left: 50%; bottom: 34px; transform: translateX(-50%); z-index: 80;
+  padding: 8px 18px; border-radius: 4px;
+  background: var(--ink); color: var(--paper-2);
+  font-size: 13px; letter-spacing: 0.08em;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+  animation: toast-in 0.18s ease-out;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, 6px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
 
 .pin { position: absolute; transform: translate(-50%, -50%); appearance: none; border: 0; background: transparent; padding: 0; cursor: pointer; line-height: 1; }
 .pin .dot { display: block; width: 10px; height: 10px; margin: 0 auto; border-radius: 50%; border: 2px solid var(--paper-2); background: var(--ochre); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4); }

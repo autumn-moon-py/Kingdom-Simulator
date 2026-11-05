@@ -1,9 +1,11 @@
 // 静态站点 + 文件存档服务：把地图与王国的状态写到项目目录的 saves/ 里。
 // 用法：node server.mjs（默认 http://0.0.0.0:8989/）
 import { createServer } from 'node:http'
+import { spawn } from 'node:child_process'
 import { readFile, writeFile, mkdir, copyFile, readdir, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { handleFeishuSync } from './scripts/feishu-sync.js'
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url))
 const DIST = path.join(ROOT, 'dist')
@@ -105,7 +107,8 @@ async function serveStatic(req, res, url) {
     const ext = path.extname(file).toLowerCase()
     res.writeHead(200, {
       'Content-Type': MIME[ext] || 'application/octet-stream',
-      'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=3600',
+      // 本地工具不需要缓存，避免浏览器继续使用旧构建
+      'Cache-Control': 'no-store',
     })
     res.end(req.method === 'HEAD' ? undefined : data)
   } catch (e) {
@@ -116,6 +119,7 @@ async function serveStatic(req, res, url) {
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
   try {
+    if (url.pathname === '/api/feishu-sync') return await handleFeishuSync(req, res)
     if (url.pathname.startsWith('/api/')) return await handleApi(req, res, url)
     await serveStatic(req, res, url)
   } catch (e) {
@@ -125,7 +129,17 @@ const server = createServer(async (req, res) => {
 
 ensureDirs().then(() => {
   server.listen(PORT, HOST, () => {
-    console.log(`Kingdom simulator: http://localhost:${PORT}/`)
+    const url = `http://localhost:${PORT}/`
+    console.log(`Kingdom simulator: ${url}`)
     console.log(`Saves: ${SAVE_DIR}`)
+    // 仅在带 --open 启动时自动打开浏览器，避免后台重启时反复弹窗
+    if (process.argv.includes('--open')) {
+      const open = process.platform === 'win32'
+        ? spawn('cmd.exe', ['/c', 'start', '', url], { detached: true, stdio: 'ignore', windowsHide: true })
+        : spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [url], { detached: true, stdio: 'ignore' })
+      open.on('error', (err) => console.error('打开浏览器失败:', err.message))
+      open.unref()
+      console.log('已尝试打开浏览器:', url)
+    }
   })
 })

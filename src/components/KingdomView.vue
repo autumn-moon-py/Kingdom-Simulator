@@ -233,10 +233,6 @@ function importPaste() {
 <template>
   <section class="kingdom">
     <div class="head">
-      <div>
-        <h1>王国经营</h1>
-        <p class="muted">劳力骰数量只作提示，外部掷好后把点数填进来；建筑与定居点建成即生效。</p>
-      </div>
       <div class="stats">
         <div class="stat"><span>总人口</span><b>{{ stats.totalPopulation }}</b></div>
         <div class="stat"><span>劳力骰</span><b>{{ stats.laborDice }}d6</b></div>
