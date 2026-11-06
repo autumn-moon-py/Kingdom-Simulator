@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import MapView from './MapView.vue'
 import KingdomView from './KingdomView.vue'
 
@@ -17,6 +17,10 @@ const view = ref(loadView())
 watch(view, (value) => {
   try { localStorage.setItem(VIEW_KEY, value) } catch (e) { /* 忽略 */ }
 })
+
+// 两个页面都用 KeepAlive 缓存：切回来时选中格、搜索、图幅和列区域设置都还在
+const pages = { map: MapView, kingdom: KingdomView }
+const page = computed(() => pages[view.value])
 </script>
 
 <template>
@@ -25,8 +29,9 @@ watch(view, (value) => {
       <button class="viewTab" :class="{ on: view === 'map' }" @click="view = 'map'">战役地图</button>
       <button class="viewTab" :class="{ on: view === 'kingdom' }" @click="view = 'kingdom'">王国经营</button>
     </nav>
-    <MapView v-if="view === 'map'" />
-    <KingdomView v-else />
+    <KeepAlive>
+      <component :is="page" />
+    </KeepAlive>
   </main>
 </template>
 

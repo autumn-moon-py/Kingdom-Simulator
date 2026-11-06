@@ -22,7 +22,7 @@ npm test         # node --test tests/*.test.js
 | --- | --- |
 | `index.html` | 唯一入口，挂载 `#app` |
 | `src/map-main.js` | `createApp(MapPage)` |
-| `src/components/MapPage.vue` | 页面壳与「地图 / 王国」视图切换 |
+| `src/components/MapPage.vue` | 页面壳与「地图 / 王国」视图切换（KeepAlive 缓存两页，切页不丢选中、搜索与列区域设置） |
 | `src/components/MapView.vue` | 全部地图逻辑与样式（工具栏、SVG 分层、侧栏、导出） |
 | `src/components/KingdomView.vue` | 王国经营界面（经营盘、建筑表、效果类型） |
 | `src/kingdom/model.js` | 王国纯逻辑：定居点、建筑、效果、劳力点数、即时结算 |
@@ -50,7 +50,7 @@ npm test         # node --test tests/*.test.js
 7. **点击语义**：点有编号的格选中、再点同格取消；点无归属的空白格取消；点工具栏/页面空白也取消。`onDocClick` 的排除列表只包含可交互控件、地图和侧栏，工具栏留白与页面留白都算空白。
 8. **渲染层顺序**：底图 → 区域填色 → 探索/占据 → 悬浮/选中 → 标点 → 区域名。格颜色只有占据和探索两档，优先级为占据 > 探索；备注只做文字记录，不参与填色（标点上的备注描边仍保留）。状态色比区域填色更饱和并带描边，不能与区域色混淆。
 9. **导出**：与预览同顺序、同颜色；线宽/字号/标记大小按 `view.w ÷ mapwrap.clientWidth` 换算，导出图看起来就是预览的样子。
-10. **列区域**：`columnInfo` 从横向完整的物理格列推导列数（剔除图幅 1 左、图幅 4 右被裁掉的半格，当前为 28 列），`colLeft / colRight`（1 到列数）与所选图幅并集取交集后写入 `view`，因此预览、导出图片与飞书同步都按列裁剪；`showColumns` 只在地图上画列边界与列号，属于预览层，不进入导出图片。
+10. **列区域**：`columnInfo` 从横向完整的物理格列推导列数（剔除图幅 1 左、图幅 4 右被裁掉的半格，当前为 28 列），`colLeft / colRight`（1 到列数）与所选图幅并集取交集后写入 `view`，因此预览、导出图片与飞书同步都按列裁剪；画幅顶部按 RL1 所在格的顶边、左侧按 TV1 所在格的左边裁齐；`showColumns` 只显示列号，属于预览层，不进入导出图片。
 
 ## 王国经营模型
 
@@ -64,6 +64,9 @@ npm test         # node --test tests/*.test.js
 8. **记录字段**：定居点的 `alias`（别名）只做展示与存档；不记录王国等级，也不记录回合数。
 9. **存档迁移**：王国存档可导出 JSON、粘贴导入，也可用文件输入导入；导入走 `normalizeKingdomState` 清洗，旧版的 `turn / level / laborRolled / builtTurn / foundedTurn` 会被丢弃，单值 `hex` 自动转为 `hexes` 数组。
 10. **文件存档**：`npm run serve` 启动 `server.mjs` 后，地图与王国优先读写项目根目录 `saves/kingdom-map-v1.json` 和 `saves/kingdom-manage-v1.json`；`POST /api/save` 原子写入前会在 `saves/backups/` 留最多 5 份备份。localStorage 继续作为离线兜底，两者内容一致。
+11. **调节旋钮**：`options` 存 `growth`（slow/normal/fast）、`compactSlots`、`singleResource`、`pressure`。成长速度同时改劳力骰除数与建筑 p 成本；建筑实际花费统一走 `buildCost(state, def)`，界面与日志不得再直接读 `def.labor / def.p / def.materials`；紧凑槽位只改 `settlementStats` 的容量，不改建筑定义。
+12. **压力模式**：没有回合数，维护费由玩家在经营盘手动点结算；`settleMaintenance` 付不起时拆除建筑最多那处定居点的最后一座建筑抵账。城市满档后界面提供「原址重建」，走 `clearBuildings` 清空建筑，拆除不退款。
+13. **志向**：`ambitionStatus(state)` 按当前人口、定居点档位与数量、建筑种类数、国库直接判定，不落盘；界面只读展示，不提供手动勾选。
 
 ## 约束与坑
 
@@ -76,6 +79,7 @@ npm test         # node --test tests/*.test.js
 - 飞书同步只保留「地图」标题下的一张地图图片和一个空段落，手写内容保留。
 - lark-cli 只接受工作目录内的本地图片：临时图写在项目根目录并在上传后删除，不要改用系统临时目录。
 - 同步图片按当前视图（图幅、列区域与区域筛选）生成，与导出图片共用同一份画布。
+- 标点文字（含别名）靠近画面边缘时会向内对齐，顶部放不下时移到圆点下方；导出图片复用同一套边界判断，避免裁剪后文字不可见。
 
 ## 交付前检查
 
