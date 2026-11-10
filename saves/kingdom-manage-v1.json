@@ -1,0 +1,555 @@
+{
+ "version": 3,
+ "treasury": 1536,
+ "materials": 4,
+ "laborPoints": 0,
+ "settled": false,
+ "settlements": [
+  {
+   "id": "capital",
+   "name": "都城",
+   "alias": "达拉崩吧",
+   "type": "town",
+   "water": true,
+   "hexes": [
+    "TW3"
+   ],
+   "buildings": [
+    {
+     "id": "capital_house_1",
+     "defId": "house"
+    },
+    {
+     "id": "capital_house_2",
+     "defId": "house"
+    },
+    {
+     "id": "capital_newspaper",
+     "defId": "newspaper"
+    }
+   ]
+  },
+  {
+   "id": "oleg",
+   "name": "欧莱格村庄",
+   "alias": "",
+   "type": "village",
+   "water": false,
+   "hexes": [
+    "RL1",
+    "RL5",
+    "GB8"
+   ],
+   "buildings": [
+    {
+     "id": "oleg_mine",
+     "defId": "mine"
+    },
+    {
+     "id": "oleg_barracks",
+     "defId": "barracks"
+    },
+    {
+     "id": "oleg_trade_post",
+     "defId": "trade_post"
+    }
+   ]
+  }
+ ],
+ "buildingDefs": [
+  {
+   "id": "house",
+   "name": "民居",
+   "alias": "",
+   "tier": "village",
+   "slots": 1,
+   "labor": 3,
+   "p": 20,
+   "materials": 0,
+   "limitPerSettlement": 0,
+   "requiresWater": false,
+   "description": "",
+   "effects": [
+    {
+     "type": "population",
+     "value": 5
+    }
+   ]
+  },
+  {
+   "id": "farm",
+   "name": "产地",
+   "alias": "",
+   "tier": "village",
+   "slots": 1,
+   "labor": 3,
+   "p": 10,
+   "materials": 0,
+   "limitPerSettlement": 0,
+   "requiresWater": false,
+   "description": "建时选农田、林场或矿场",
+   "effects": [
+    {
+     "type": "material",
+     "value": 2
+    }
+   ]
+  },
+  {
+   "id": "market",
+   "name": "市集",
+   "alias": "",
+   "tier": "village",
+   "slots": 1,
+   "labor": 4,
+   "p": 30,
+   "materials": 0,
+   "limitPerSettlement": 0,
+   "requiresWater": false,
+   "description": "",
+   "effects": [
+    {
+     "type": "p",
+     "value": 10
+    }
+   ]
+  },
+  {
+   "id": "road",
+   "name": "道路",
+   "alias": "",
+   "tier": "village",
+   "slots": 1,
+   "labor": 4,
+   "p": 15,
+   "materials": 0,
+   "limitPerSettlement": 1,
+   "requiresWater": false,
+   "description": "每定居点限1条",
+   "effects": [
+    {
+     "type": "labor",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "id": "workshop",
+   "name": "作坊",
+   "alias": "",
+   "tier": "town",
+   "slots": 1,
+   "labor": 5,
+   "p": 20,
+   "materials": 2,
+   "limitPerSettlement": 0,
+   "requiresWater": false,
+   "description": "",
+   "effects": [
+    {
+     "type": "p",
+     "value": 15
+    }
+   ]
+  },
+  {
+   "id": "school",
+   "name": "学堂",
+   "alias": "",
+   "tier": "town",
+   "slots": 1,
+   "labor": 6,
+   "p": 40,
+   "materials": 2,
+   "limitPerSettlement": 0,
+   "requiresWater": false,
+   "description": "",
+   "effects": [
+    {
+     "type": "labor",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "id": "dock",
+   "name": "码头",
+   "alias": "",
+   "tier": "town",
+   "slots": 1,
+   "labor": 5,
+   "p": 30,
+   "materials": 2,
+   "limitPerSettlement": 0,
+   "requiresWater": true,
+   "description": "需临水",
+   "effects": [
+    {
+     "type": "p",
+     "value": 20
+    }
+   ]
+  },
+  {
+   "id": "town_hall",
+   "name": "镇公所",
+   "alias": "",
+   "tier": "town",
+   "slots": 2,
+   "labor": 8,
+   "p": 80,
+   "materials": 3,
+   "limitPerSettlement": 0,
+   "requiresWater": false,
+   "description": "",
+   "effects": [
+    {
+     "type": "population",
+     "value": 10
+    },
+    {
+     "type": "labor",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "id": "grand_market",
+   "name": "大市集",
+   "alias": "",
+   "tier": "city",
+   "slots": 2,
+   "labor": 8,
+   "p": 100,
+   "materials": 4,
+   "limitPerSettlement": 0,
+   "requiresWater": false,
+   "description": "",
+   "effects": [
+    {
+     "type": "p",
+     "value": 30
+    }
+   ]
+  },
+  {
+   "id": "university",
+   "name": "大学",
+   "alias": "",
+   "tier": "city",
+   "slots": 2,
+   "labor": 10,
+   "p": 120,
+   "materials": 5,
+   "limitPerSettlement": 1,
+   "requiresWater": false,
+   "description": "每定居点限1座",
+   "effects": [
+    {
+     "type": "labor",
+     "value": 2
+    }
+   ]
+  },
+  {
+   "id": "theater",
+   "name": "剧院",
+   "alias": "",
+   "tier": "city",
+   "slots": 2,
+   "labor": 8,
+   "p": 80,
+   "materials": 4,
+   "limitPerSettlement": 1,
+   "requiresWater": false,
+   "description": "每定居点限1座",
+   "effects": [
+    {
+     "type": "population",
+     "value": 10
+    },
+    {
+     "type": "p",
+     "value": 15
+    }
+   ]
+  },
+  {
+   "id": "palace",
+   "name": "宫殿",
+   "alias": "",
+   "tier": "city",
+   "slots": 3,
+   "labor": 12,
+   "p": 200,
+   "materials": 8,
+   "limitPerSettlement": 1,
+   "requiresWater": false,
+   "description": "每定居点限1座",
+   "effects": [
+    {
+     "type": "population",
+     "value": 20
+    },
+    {
+     "type": "p",
+     "value": 20
+    },
+    {
+     "type": "labor",
+     "value": 2
+    }
+   ]
+  },
+  {
+   "id": "newspaper",
+   "name": "报社",
+   "alias": "",
+   "tier": "town",
+   "slots": 1,
+   "labor": 5,
+   "p": 40,
+   "materials": 2,
+   "limitPerSettlement": 0,
+   "requiresWater": false,
+   "description": "记录舆情与民心，按桌面裁定",
+   "effects": [
+    {
+     "type": "morale",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "id": "mine",
+   "name": "矿场",
+   "alias": "",
+   "tier": "village",
+   "slots": 1,
+   "labor": 4,
+   "p": 25,
+   "materials": 1,
+   "limitPerSettlement": 0,
+   "requiresWater": false,
+   "description": "建在 GB8 金矿，产出翻倍",
+   "effects": [
+    {
+     "type": "material",
+     "value": 6
+    }
+   ]
+  },
+  {
+   "id": "barracks",
+   "name": "军营",
+   "alias": "",
+   "tier": "village",
+   "slots": 1,
+   "labor": 4,
+   "p": 30,
+   "materials": 2,
+   "limitPerSettlement": 0,
+   "requiresWater": false,
+   "description": "驻 RL5",
+   "effects": [
+    {
+     "type": "garrison",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "id": "tavern",
+   "name": "客栈",
+   "alias": "",
+   "tier": "village",
+   "slots": 1,
+   "labor": 3,
+   "p": 25,
+   "materials": 0,
+   "limitPerSettlement": 0,
+   "requiresWater": false,
+   "description": "提供食宿与消息；民心按桌面裁定",
+   "effects": [
+    {
+     "type": "p",
+     "value": 5
+    },
+    {
+     "type": "morale",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "id": "shrine",
+   "name": "神殿",
+   "alias": "",
+   "tier": "village",
+   "slots": 1,
+   "labor": 4,
+   "p": 30,
+   "materials": 0,
+   "limitPerSettlement": 0,
+   "requiresWater": false,
+   "description": "民心按桌面裁定",
+   "effects": [
+    {
+     "type": "population",
+     "value": 5
+    },
+    {
+     "type": "morale",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "id": "wall",
+   "name": "城墙",
+   "alias": "",
+   "tier": "town",
+   "slots": 2,
+   "labor": 8,
+   "p": 60,
+   "materials": 3,
+   "limitPerSettlement": 0,
+   "requiresWater": false,
+   "description": "防御按桌面裁定",
+   "effects": [
+    {
+     "type": "defense",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "id": "library",
+   "name": "图书馆",
+   "alias": "",
+   "tier": "town",
+   "slots": 1,
+   "labor": 6,
+   "p": 50,
+   "materials": 2,
+   "limitPerSettlement": 0,
+   "requiresWater": false,
+   "description": "研究线索按桌面裁定",
+   "effects": [
+    {
+     "type": "research",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "id": "trade_post",
+   "name": "贸易站",
+   "alias": "",
+   "tier": "town",
+   "slots": 1,
+   "labor": 5,
+   "p": 40,
+   "materials": 0,
+   "limitPerSettlement": 0,
+   "requiresWater": false,
+   "description": "外交与贸易按桌面裁定",
+   "effects": [
+    {
+     "type": "p",
+     "value": 10
+    },
+    {
+     "type": "diplomacy",
+     "value": 1
+    }
+   ]
+  }
+ ],
+ "effectDefs": [
+  {
+   "id": "population",
+   "label": "人口",
+   "unit": "人",
+   "kind": "population"
+  },
+  {
+   "id": "labor",
+   "label": "劳力骰",
+   "unit": "颗",
+   "kind": "labor"
+  },
+  {
+   "id": "p",
+   "label": "p",
+   "unit": "p",
+   "kind": "incomeP"
+  },
+  {
+   "id": "material",
+   "label": "物资",
+   "unit": "物资",
+   "kind": "incomeMaterial"
+  },
+  {
+   "id": "slots",
+   "label": "槽位",
+   "unit": "槽",
+   "kind": "slots"
+  },
+  {
+   "id": "note",
+   "label": "说明",
+   "unit": "",
+   "kind": "note"
+  },
+  {
+   "id": "morale",
+   "label": "民心",
+   "unit": "",
+   "kind": "note"
+  },
+  {
+   "id": "garrison",
+   "label": "驻军",
+   "unit": "",
+   "kind": "note"
+  },
+  {
+   "id": "defense",
+   "label": "防御",
+   "unit": "",
+   "kind": "note"
+  },
+  {
+   "id": "research",
+   "label": "研究",
+   "unit": "",
+   "kind": "note"
+  },
+  {
+   "id": "diplomacy",
+   "label": "外交",
+   "unit": "",
+   "kind": "note"
+  }
+ ],
+ "log": [
+  {
+   "id": "sync_1",
+   "text": "同步现实桌：TW3 都城（达拉崩吧），RL1 欧莱格村庄，RL5 军营。"
+  },
+  {
+   "id": "sync_2",
+   "text": "都城建造报社；欧莱格村庄建造矿场与军营，矿场占用 GB8 金矿，产出翻倍。"
+  },
+  {
+   "id": "sync_3",
+   "text": "国库按桌面记为 1536p。"
+  },
+  {
+   "id": "log_oleg_trade_post",
+   "text": "补充：欧莱格的 RL1 贸易站作为既有建筑免费计入。"
+  }
+ ]
+}

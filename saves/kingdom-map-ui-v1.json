@@ -1,0 +1,38 @@
+{
+ "showRegions": true,
+ "showNames": false,
+ "showPins": false,
+ "onlyMarked": true,
+ "showColumns": false,
+ "colLeft": 16,
+ "colRight": 25,
+ "scopeCodes": [
+  "RL",
+  "GB",
+  "TW",
+  "KL",
+  "NM",
+  "SH",
+  "DS",
+  "NH",
+  "LV",
+  "HT",
+  "DR",
+  "TL",
+  "RU",
+  "GL",
+  "PX",
+  "GU",
+  "NU",
+  "TV",
+  "BR",
+  "BV"
+ ],
+ "sheetIds": [
+  "m3",
+  "m4",
+  "m2"
+ ],
+ "activeSheet": "m2",
+ "updatedAt": 1793892779011
+}

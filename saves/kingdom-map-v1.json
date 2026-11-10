@@ -1,0 +1,48 @@
+{
+ "hexAliases": {
+  "GB8": "金矿",
+  "RL1": "欧莱格村庄",
+  "RL5": "军营",
+  "TW3": "都城（达拉崩吧）"
+ },
+ "hexClaimed": {
+  "GB8": true,
+  "RL1": true,
+  "RL5": true,
+  "TW3": true
+ },
+ "hexExplored": {
+  "GB10": true,
+  "GB12": true,
+  "GB13": true,
+  "GB14": true,
+  "GB15": true,
+  "GB18": true,
+  "GB19": true,
+  "GB3": true,
+  "GB4": true,
+  "GB6": true,
+  "GB7": true,
+  "GB9": true,
+  "GBN1": true,
+  "GBN2": true,
+  "KL4": true,
+  "KL5": true,
+  "RL2": true,
+  "RL3": true,
+  "RL4": true,
+  "TW4": true,
+  "TW5": true,
+  "TW6": true,
+  "TW7": true
+ },
+ "hexNotes": {
+  "GB8": "金矿",
+  "RL1": "欧莱格村庄",
+  "RL5": "军营",
+  "TW3": "都城（达拉崩吧）"
+ },
+ "mapCalib": {},
+ "pins": {},
+ "savedAt": 1794301530749
+}

@@ -13,8 +13,12 @@ Thumbs.db
 .env.local
 .env.*.local
 
-# 运行时文件存档
-saves/
+# 运行时文件存档：主存档入库，备份与临时文件不入库
+saves/*
+!saves/kingdom-manage-v1.json
+!saves/kingdom-map-v1.json
+!saves/kingdom-map-ui-v1.json
+saves/backups/
 
 # 本地工具产物（技能安装与评审记录，不入库）
 .claude/
