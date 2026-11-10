@@ -12,8 +12,12 @@ import {
   newSettlementCost,
   normalizeBuildingDefs,
   normalizeKingdomState,
+  pendingProduction,
+  settleCheck,
+  settleProduction,
   settlementLabel,
   settlementStats,
+  startNewRound,
 } from '../src/kingdom/model.js'
 
 test('开局：首都村庄、25人口、4颗劳力骰、12p税收', () => {
@@ -55,6 +59,63 @@ test('建筑产出与税收直接反映在当前数值里', () => {
   assert.equal(state.treasury, 30)
   assert.equal(kingdomStats(state).buildingP, 10)
   assert.equal(kingdomStats(state).incomeP, 22)
+})
+
+test('结算：每轮全额结算，新一轮重置劳力', () => {
+  const state = defaultKingdomState()
+  state.treasury = 100
+
+  const pending = pendingProduction(state)
+  assert.deepEqual(pending, { p: 7, materials: 0, totalP: 7, totalMaterials: 0, upkeep: 5 })
+  assert.equal(settleProduction(state).ok, true)
+  assert.equal(state.treasury, 107)
+  assert.equal(state.settled, true)
+  assert.equal(settleProduction(state).ok, false)
+  assert.equal(state.treasury, 107)
+
+  startNewRound(state)
+  assert.equal(state.settled, false)
+  assert.equal(state.laborPoints, 0)
+
+  state.laborPoints = 10
+  assert.equal(buildBuilding(state, 'capital', 'market').ok, true)
+  const second = settleProduction(state)
+  assert.equal(second.ok, true)
+  assert.equal(second.p, 12)
+  assert.equal(second.materials, 0)
+  assert.equal(state.treasury, 89)
+  assert.equal(state.settled, true)
+
+  const saved = normalizeKingdomState({ settled: true })
+  assert.equal(saved.settled, true)
+})
+
+test('维护费不足时阻止结算，避免国库变负', () => {
+  const state = defaultKingdomState()
+  state.settlements[0].buildings = ['house', 'farm', 'farm', 'farm'].map((defId, i) => ({ id: `b${i}`, defId }))
+  state.treasury = 0
+  const check = settleCheck(state)
+  assert.equal(check.ok, false)
+  assert.match(check.reason, /维护费/)
+  assert.equal(settleProduction(state).ok, false)
+  assert.equal(state.treasury, 0)
+})
+
+test('v2 存档补齐补充建筑与说明效果，v3 不再补回已删除项', () => {
+  const old = defaultKingdomState()
+  old.version = 2
+  const newBuildings = ['tavern', 'shrine', 'wall', 'library', 'trade_post']
+  const newEffects = ['morale', 'defense', 'research', 'diplomacy']
+  old.buildingDefs = old.buildingDefs.filter((d) => !newBuildings.includes(d.id))
+  old.effectDefs = old.effectDefs.filter((e) => !newEffects.includes(e.id))
+
+  const migrated = normalizeKingdomState(old)
+  assert.equal(migrated.version, 3)
+  for (const id of newBuildings) assert.ok(migrated.buildingDefs.some((d) => d.id === id))
+  for (const id of newEffects) assert.ok(migrated.effectDefs.some((e) => e.id === id))
+
+  const v3 = normalizeKingdomState({ ...old, version: 3 })
+  assert.equal(v3.buildingDefs.some((d) => d.id === 'tavern'), false)
 })
 
 test('槽位填满后立即升级', () => {

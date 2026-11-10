@@ -16,6 +16,8 @@ npm run serve    # 静态站点 + 文件存档，默认 http://localhost:8989/
 npm test         # node --test tests/*.test.js
 ```
 
+默认视图由本地 `.env` 的 `VITE_DEFAULT_VIEW` 控制（`map` / `kingdom`），`.env` 不入库；该值在构建时写入产物，`npm run serve` 也沿用构建时的值。
+
 ## 代码地图
 
 | 文件 | 职责 |

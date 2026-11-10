@@ -1,7 +1,8 @@
 // 王国经营的数据模型与纯逻辑：不依赖 Vue，便于单元测试。
 // 建筑与效果全部走数据表，界面改表即时生效；存档只保存这张表和当前局面。
 
-export const VERSION = 2
+export const VERSION = 3
+export const UPKEEP_PER_BUILDING = 5
 
 export const BUILDING_TIERS = [
   { id: 'village', label: '村庄' },
@@ -31,7 +32,14 @@ const EFFECT_IDS = {
   material: 'material',
   slots: 'slots',
   note: 'note',
+  morale: 'morale',
+  defense: 'defense',
+  research: 'research',
+  diplomacy: 'diplomacy',
 }
+
+const V3_EFFECT_IDS = new Set([EFFECT_IDS.morale, EFFECT_IDS.defense, EFFECT_IDS.research, EFFECT_IDS.diplomacy])
+const V3_BUILDING_IDS = new Set(['tavern', 'shrine', 'wall', 'library', 'trade_post'])
 
 export function defaultEffectDefs() {
   return [
@@ -41,6 +49,10 @@ export function defaultEffectDefs() {
     { id: EFFECT_IDS.material, label: '物资', unit: '物资', kind: 'incomeMaterial' },
     { id: EFFECT_IDS.slots, label: '槽位', unit: '槽', kind: 'slots' },
     { id: EFFECT_IDS.note, label: '说明', unit: '', kind: 'note' },
+    { id: EFFECT_IDS.morale, label: '民心', unit: '', kind: 'note' },
+    { id: EFFECT_IDS.defense, label: '防御', unit: '', kind: 'note' },
+    { id: EFFECT_IDS.research, label: '研究', unit: '', kind: 'note' },
+    { id: EFFECT_IDS.diplomacy, label: '外交', unit: '', kind: 'note' },
   ]
 }
 
@@ -67,6 +79,22 @@ export function defaultBuildingDefs() {
       effects: [{ type: EFFECT_IDS.labor, value: 1 }],
     },
     {
+      id: 'tavern', name: '客栈', tier: 'village', slots: 1, labor: 3, p: 25, materials: 0,
+      limitPerSettlement: 0, requiresWater: false, description: '提供食宿与消息；民心按桌面裁定',
+      effects: [
+        { type: EFFECT_IDS.p, value: 5 },
+        { type: EFFECT_IDS.morale, value: 1 },
+      ],
+    },
+    {
+      id: 'shrine', name: '神殿', tier: 'village', slots: 1, labor: 4, p: 30, materials: 0,
+      limitPerSettlement: 0, requiresWater: false, description: '民心按桌面裁定',
+      effects: [
+        { type: EFFECT_IDS.population, value: 5 },
+        { type: EFFECT_IDS.morale, value: 1 },
+      ],
+    },
+    {
       id: 'workshop', name: '作坊', tier: 'town', slots: 1, labor: 5, p: 20, materials: 2,
       limitPerSettlement: 0, requiresWater: false, description: '',
       effects: [{ type: EFFECT_IDS.p, value: 15 }],
@@ -87,6 +115,24 @@ export function defaultBuildingDefs() {
       effects: [
         { type: EFFECT_IDS.population, value: 10 },
         { type: EFFECT_IDS.labor, value: 1 },
+      ],
+    },
+    {
+      id: 'wall', name: '城墙', tier: 'town', slots: 2, labor: 8, p: 60, materials: 3,
+      limitPerSettlement: 0, requiresWater: false, description: '防御按桌面裁定',
+      effects: [{ type: EFFECT_IDS.defense, value: 1 }],
+    },
+    {
+      id: 'library', name: '图书馆', tier: 'town', slots: 1, labor: 6, p: 50, materials: 2,
+      limitPerSettlement: 0, requiresWater: false, description: '研究线索按桌面裁定',
+      effects: [{ type: EFFECT_IDS.research, value: 1 }],
+    },
+    {
+      id: 'trade_post', name: '贸易站', tier: 'town', slots: 1, labor: 5, p: 40, materials: 0,
+      limitPerSettlement: 0, requiresWater: false, description: '外交与贸易按桌面裁定',
+      effects: [
+        { type: EFFECT_IDS.p, value: 10 },
+        { type: EFFECT_IDS.diplomacy, value: 1 },
       ],
     },
     {
@@ -137,6 +183,7 @@ export function defaultKingdomState() {
     treasury: 60,
     materials: 4,
     laborPoints: 0,
+    settled: false,
     settlements: [capitalSettlement()],
     buildingDefs: defaultBuildingDefs(),
     effectDefs: defaultEffectDefs(),
@@ -271,11 +318,21 @@ export function normalizeKingdomState(raw) {
   const fallback = defaultKingdomState()
   const effectDefs = normalizeEffectDefs(raw.effectDefs)
   const buildingDefs = normalizeBuildingDefs(raw.buildingDefs)
+  // v2 存档一次性补齐战役补充建筑与说明型效果；v3 后尊重玩家的删除
+  if (intOf(raw.version, 0, 0) < 3) {
+    for (const def of defaultEffectDefs()) {
+      if (V3_EFFECT_IDS.has(def.id) && !effectDefs.some((x) => x.id === def.id)) effectDefs.push(def)
+    }
+    for (const def of defaultBuildingDefs()) {
+      if (V3_BUILDING_IDS.has(def.id) && !buildingDefs.some((x) => x.id === def.id)) buildingDefs.push(def)
+    }
+  }
   return {
     version: VERSION,
     treasury: intOf(raw.treasury, fallback.treasury, 0),
     materials: intOf(raw.materials, fallback.materials, 0),
     laborPoints: intOf(raw.laborPoints, 0, 0),
+    settled: raw.settled === true,
     settlements: normalizeSettlements(raw.settlements, buildingDefs),
     buildingDefs,
     effectDefs,
@@ -348,12 +405,15 @@ export function settlementStats(state, settlement) {
   const capacity = Math.max(0, Math.round(type.slots + slotEffect))
   const free = Math.max(0, capacity - used)
   const tax = Math.floor(population / 2)
+  const upkeep = settlement.buildings.length * UPKEEP_PER_BUILDING
   return {
     type,
     population,
     tax,
     buildingP,
     incomeP: tax + buildingP,
+    upkeep,
+    netIncomeP: tax + buildingP - upkeep,
     materials: buildingMaterials,
     laborBonus,
     capacity,
@@ -370,16 +430,69 @@ export function kingdomStats(state) {
   const baseLaborDice = Math.min(12, Math.max(3, Math.floor(totalPopulation / 6)))
   const laborBonus = rows.reduce((sum, r) => sum + r.laborBonus, 0)
   const laborDice = Math.max(0, baseLaborDice + laborBonus)
+  const tax = rows.reduce((sum, r) => sum + r.tax, 0)
+  const buildingP = rows.reduce((sum, r) => sum + r.buildingP, 0)
+  const incomeP = rows.reduce((sum, r) => sum + r.incomeP, 0)
+  const upkeep = rows.reduce((sum, r) => sum + r.upkeep, 0)
   return {
     totalPopulation,
     baseLaborDice,
     laborBonus,
     laborDice,
-    tax: rows.reduce((sum, r) => sum + r.tax, 0),
-    buildingP: rows.reduce((sum, r) => sum + r.buildingP, 0),
-    incomeP: rows.reduce((sum, r) => sum + r.incomeP, 0),
+    tax,
+    buildingP,
+    incomeP,
+    upkeep,
+    netIncomeP: incomeP - upkeep,
     materials: rows.reduce((sum, r) => sum + r.materials, 0),
   }
+}
+
+// 每次经营结算一次全额净产出；settled 标记当前这一轮是否已经入库
+export function pendingProduction(state) {
+  const stats = kingdomStats(state)
+  const settled = state.settled === true
+  return {
+    p: settled ? 0 : stats.netIncomeP,
+    materials: settled ? 0 : stats.materials,
+    totalP: stats.netIncomeP,
+    totalMaterials: stats.materials,
+    upkeep: stats.upkeep,
+  }
+}
+
+export function settleCheck(state) {
+  const pending = pendingProduction(state)
+  if (state.settled === true) {
+    return { ok: false, reason: '本次已经结算', pending }
+  }
+  if (!pending.p && !pending.materials) {
+    return { ok: false, reason: '本次没有可结算的产出', pending }
+  }
+  const treasury = numOf(state.treasury, 0)
+  if (pending.p < 0 && treasury + pending.p < 0) {
+    const gap = -(treasury + pending.p)
+    return { ok: false, reason: `国库不足支付维护费，还差${gap}p；可拆除建筑或补足国库`, pending }
+  }
+  return { ok: true, reason: '', pending }
+}
+
+export function settleProduction(state) {
+  const check = settleCheck(state)
+  if (!check.ok) return check
+  const pending = check.pending
+  state.treasury = numOf(state.treasury, 0) + pending.p
+  state.materials = numOf(state.materials, 0) + pending.materials
+  state.settled = true
+  pushLog(state, `结算：${signed(pending.p)}p、${signed(pending.materials)}物资。`)
+  return { ok: true, ...pending }
+}
+
+export function startNewRound(state) {
+  state.settled = false
+  state.laborPoints = 0
+  pushLog(state, '开始新一轮经营，劳力清零。')
+  return { ok: true }
 }
 
 export function allowedDefs(state, settlement) {
@@ -531,7 +644,10 @@ export function effectSummary(state, def) {
 
 export function costText(def) {
   if (!def) return ''
-  return `劳${def.labor} · ${def.p}p · ${def.materials}物资`
+  const parts = [`劳力${def.labor}`]
+  if (def.p) parts.push(`${def.p}p`)
+  if (def.materials) parts.push(`${def.materials}物资`)
+  return parts.join(' · ')
 }
 
 export function newBuildingDef() {
@@ -552,7 +668,7 @@ export function newBuildingDef() {
 }
 
 export function newEffectDef() {
-  return { id: makeId('fx'), label: '新效果', unit: '', kind: 'note' }
+  return { id: makeId('fx'), label: '新效果', unit: 'p', kind: 'incomeP' }
 }
 
 export function pushLog(state, text) {
