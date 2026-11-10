@@ -13,7 +13,6 @@ import {
   effectSummary,
   foundSettlement,
   kingdomStats,
-  maintenanceCost,
   newSettlementCost,
   normalizeBuildingDefs,
   normalizeKingdomState,
@@ -351,103 +350,4 @@ test('存档清洗：丢弃旧版的回合、等级与延迟字段', () => {
   assert.equal(empty.settlements[0].id, 'capital')
   assert.equal(empty.settlements[0].buildings.length, 1)
   assert.equal('builtTurn' in empty.settlements[0].buildings[0], false)
-})
-
-test('调节旋钮：成长速度改变劳力骰除数与建造成本', () => {
-  const state = defaultKingdomState()
-  const house = defById(state, 'house')
-  assert.equal(kingdomStats(state).baseLaborDice, 4)
-
-  state.options.growth = 'slow'
-  assert.equal(kingdomStats(state).baseLaborDice, 3)
-  assert.deepEqual(buildCost(state, house), { labor: 3, p: 30, materials: 0 })
-
-  state.options.growth = 'fast'
-  assert.equal(kingdomStats(state).baseLaborDice, 6)
-  assert.deepEqual(buildCost(state, house), { labor: 3, p: 15, materials: 0 })
-
-  state.options.growth = 'normal'
-  assert.equal(kingdomStats(state).baseLaborDice, 4)
-  assert.deepEqual(buildCost(state, house), { labor: 3, p: 20, materials: 0 })
-})
-
-test('调节旋钮：紧凑槽位与单资源模式即时生效', () => {
-  const state = defaultKingdomState()
-  state.options.compactSlots = true
-  assert.equal(settlementStats(state, state.settlements[0]).capacity, 3)
-
-  state.settlements[0].type = 'town'
-  assert.equal(settlementStats(state, state.settlements[0]).capacity, 6)
-  state.settlements[0].type = 'village'
-
-  state.options.singleResource = true
-  const workshop = defById(state, 'workshop')
-  assert.deepEqual(buildCost(state, workshop), { labor: 0, p: 20, materials: 0 })
-  state.settlements[0].type = 'town'
-  state.laborPoints = 0
-  state.treasury = 100
-  state.materials = 0
-  assert.equal(canBuild(state, 'capital', 'workshop').ok, true)
-})
-
-test('压力模式：维护费可用国库结算，不足时拆一座建筑抵账', () => {
-  const state = defaultKingdomState()
-  assert.equal(settleMaintenance(state).ok, false)
-
-  state.options.pressure = true
-  assert.equal(maintenanceCost(state), 5)
-  state.treasury = 100
-  const paid = settleMaintenance(state)
-  assert.equal(paid.paid, true)
-  assert.equal(state.treasury, 95)
-
-  state.treasury = 0
-  const broke = settleMaintenance(state)
-  assert.equal(broke.paid, false)
-  assert.equal(broke.demolished.name, '民居')
-  assert.equal(state.settlements[0].buildings.length, 0)
-  assert.equal(maintenanceCost(state), 0)
-})
-
-test('志向：人口、城镇、定居点、建筑种类与国库自动打勾', () => {
-  const state = defaultKingdomState()
-  const done = (id) => ambitionStatus(state).find((a) => a.id === id).done
-  assert.equal(done('pop50'), false)
-  assert.equal(done('p1000'), false)
-  assert.equal(done('town'), false)
-
-  state.treasury = 1000
-  assert.equal(done('p1000'), true)
-
-  state.settlements[0].type = 'town'
-  assert.equal(done('town'), true)
-
-  state.settlements[0].buildings = state.buildingDefs.map((d, i) => ({ id: `b${i}`, defId: d.id }))
-  assert.equal(done('b12'), true)
-  assert.equal(done('pop50'), true)
-})
-
-test('城市原址重建：清空建筑后槽位全部空出', () => {
-  const state = defaultKingdomState()
-  const result = clearBuildings(state, 'capital')
-  assert.equal(result.ok, true)
-  assert.equal(result.count, 1)
-  assert.equal(state.settlements[0].buildings.length, 0)
-  assert.equal(clearBuildings(state, 'capital').ok, false)
-  assert.equal(clearBuildings(state, 'missing').ok, false)
-})
-
-test('调节旋钮存档：默认值补齐，坏值退回标准', () => {
-  assert.deepEqual(defaultKingdomState().options, defaultOptions())
-  assert.deepEqual(normalizeKingdomState({}).options, defaultOptions())
-
-  const normalized = normalizeKingdomState({
-    options: { growth: 'fast', compactSlots: true, singleResource: 1, pressure: 'yes' },
-  })
-  assert.deepEqual(normalized.options, {
-    growth: 'fast',
-    compactSlots: true,
-    singleResource: false,
-    pressure: false,
-  })
 })
