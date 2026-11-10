@@ -554,6 +554,19 @@ export function countEffectUsage(state, effectId) {
   )
 }
 
+// 实际建造费：成长速度改 p 成本，单资源模式去掉劳力与物资
+export function buildCost(state, def) {
+  if (!def) return { labor: 0, p: 0, materials: 0 }
+  const growth = GROWTH_RATES[state.options?.growth] || GROWTH_RATES.normal
+  const p = Math.ceil((Number(def.p) || 0) * growth.costMultiplier)
+  if (state.options?.singleResource) return { labor: 0, p, materials: 0 }
+  return {
+    labor: Math.max(0, Number(def.labor) || 0),
+    p,
+    materials: Math.max(0, Number(def.materials) || 0),
+  }
+}
+
 export function canBuild(state, settlementId, defId) {
   const settlement = settlementById(state, settlementId)
   if (!settlement) return { ok: false, reason: '没有这处定居点' }

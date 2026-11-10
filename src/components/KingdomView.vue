@@ -20,12 +20,14 @@ import {
   countBuildingInstances,
   countEffectUsage,
   defaultBuildingDefs,
+  defaultOptions,
   defById,
   defLabel,
   demolishBuilding,
   effectSummary,
   foundSettlement,
   kingdomStats,
+  maintenanceCost,
   newBuildingDef,
   newEffectDef,
   newSettlementCost,
@@ -46,6 +48,7 @@ const message = ref('')
 const messageWarn = ref(false)
 const flashId = ref('')
 const picks = reactive({})
+const issues = reactive({})
 const fileInput = ref(null)
 const pasting = ref(false)
 const pasteText = ref('')
@@ -133,6 +136,7 @@ function clampDef(def) {
 
 // 只认地图页里已占据的格子；存档里若还留着已取消占据的编号，也保留为可选项并标出
 const claimedHexes = computed(() => Object.keys(mapState.hexClaimed || {}).sort())
+const recentLog = computed(() => state.log.slice(-12).reverse())
 
 function hexOptions(current) {
   const list = claimedHexes.value.slice()
@@ -163,6 +167,20 @@ function nameOf(defId) {
   return def ? defLabel(def) : '未知建筑'
 }
 
+function defAria(def) {
+  if (!def) return ''
+  const parts = [
+    defLabel(def),
+    `${tierLabel(def.tier)}档`,
+    `${def.slots}槽`,
+    costText(state, def),
+    effectSummary(state, def),
+  ]
+  if (def.requiresWater) parts.push('需要临水')
+  if (def.limitPerSettlement) parts.push(`每定居点限${def.limitPerSettlement}座`)
+  return parts.join('，')
+}
+
 function defsFor(settlement) {
   return allowedDefs(state, settlement)
 }
@@ -174,6 +192,7 @@ function pickOf(settlement) {
 
 function setPick(settlement, defId) {
   picks[settlement.id] = defId
+  delete issues[settlement.id]
 }
 
 function selectedDef(settlement) {
@@ -295,6 +314,12 @@ function remove(settlement, building) {
   say(`已拆除${label}，槽位空出。`)
 }
 
+function rebuild(settlement) {
+  if (!window.confirm(`清空${settlement.name}的全部建筑？槽位会空出，不退款。`)) return
+  const result = clearBuildings(state, settlement.id)
+  message.value = result.ok ? `已清空 ${result.count} 座建筑。` : result.reason
+}
+
 function found() {
   const result = foundSettlement(state)
   if (!result.ok) {
@@ -313,6 +338,16 @@ function rebuild(settlement) {
   }
   say(`已清空 ${result.count} 座建筑，槽位全部空出。`)
   flash(settlement.id)
+}
+
+function payMaintenance() {
+  const result = settleMaintenance(state)
+  if (!result.ok) {
+    message.value = result.reason
+    return
+  }
+  if (result.paid) message.value = result.cost ? `已付维护费${result.cost}p。` : '无需维护费。'
+  else message.value = `维护费${result.cost}p不足，拆除${result.demolished.name}抵账。`
 }
 
 function addDef() {
@@ -354,9 +389,8 @@ function effectUnit(effect) {
   return fx ? fx.unit : ''
 }
 
-function usedDefText(defId) {
-  const n = countBuildingInstances(state, defId)
-  return n ? `已有 ${n} 座，拆除后才能删除定义。` : ''
+function usageOf(effectId) {
+  return countEffectUsage(state, effectId)
 }
 
 function addEffectDef() {
@@ -373,16 +407,6 @@ function removeEffectDef(fx) {
   const i = state.effectDefs.findIndex((e) => e.id === fx.id)
   if (i >= 0) state.effectDefs.splice(i, 1)
   say(`已删除效果类型：${fx.label}。`)
-}
-
-function effectUsageText(fxId) {
-  const n = countEffectUsage(state, fxId)
-  return n ? `被 ${n} 条建筑效果使用` : '未使用'
-}
-
-function kindHint(kind) {
-  const hit = EFFECT_KINDS.find((k) => k.id === kind)
-  return hit ? hit.hint : ''
 }
 
 function resetBuildings() {
@@ -432,6 +456,7 @@ function importPaste() {
     return
   }
   for (const key of Object.keys(picks)) delete picks[key]
+  for (const key of Object.keys(issues)) delete issues[key]
   pasteText.value = ''
   pasting.value = false
   say('已导入王国存档。')
@@ -502,6 +527,7 @@ function importPaste() {
     </nav>
 
     <div v-if="tab === 'play'" class="play">
+      <h2 class="panelTitle">经营盘</h2>
       <div class="settleGrid">
         <article v-for="{ s, st, up } in rows" :key="s.id" class="settle" :class="{ flash: flashId === s.id }">
           <header class="shead">
@@ -700,9 +726,13 @@ function importPaste() {
             </label>
           </div>
           <div class="fxDesc">
-            <span class="muted">{{ kindHint(fx.kind) }}</span>
-            <span class="muted">{{ effectUsageText(fx.id) }}</span>
-            <button class="mini danger" :disabled="countEffectUsage(state, fx.id) > 0" @click="removeEffectDef(fx)">删除</button>
+            <span v-if="usageOf(fx.id)" class="muted">{{ usageOf(fx.id) }} 条建筑效果使用中</span>
+            <button
+              class="mini danger"
+              :disabled="usageOf(fx.id) > 0"
+              :title="usageOf(fx.id) ? '仍被建筑使用，先从建筑上移除' : '删除效果类型'"
+              @click="removeEffectDef(fx)"
+            >删除</button>
           </div>
         </div>
       </div>
@@ -742,6 +772,11 @@ function importPaste() {
 
 <style scoped>
 .kingdom { max-width: 1180px; margin: 0 auto; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+.panelTitle { margin: 0 0 12px; font-size: 15px; font-weight: 600; letter-spacing: 0.04em; }
 
 .head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 8px 26px; }
 .head h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: 0.04em; }
@@ -798,7 +833,7 @@ function importPaste() {
 .tab {
   appearance: none; margin-bottom: -1px; padding: 8px 12px 7px;
   border: 0; border-bottom: 2px solid transparent; background: transparent;
-  color: var(--ink-2); font: inherit; cursor: pointer;
+  color: var(--ink-2); font: inherit; cursor: pointer; transition: color 0.15s, border-color 0.15s;
 }
 .tab:hover { color: var(--ochre); }
 .tab.on { color: var(--ink); border-bottom-color: var(--ochre); font-weight: 600; }
@@ -820,11 +855,11 @@ function importPaste() {
   border: 0; border-bottom: 1px solid var(--rule); border-radius: 0;
   background: transparent; color: var(--ink-2); font-size: 13px;
 }
-.aliasInput:hover { border-bottom-color: var(--ochre-soft); }
+.aliasInput:hover { border-bottom-color: var(--rule); }
 .tag {
   padding: 0 5px; border: 1px solid var(--rule-soft); border-radius: 2px;
   background: var(--wash-ochre); color: var(--ochre);
-  font-size: 11px; letter-spacing: 0.06em;
+  font-size: 12px; letter-spacing: 0.06em; white-space: nowrap;
 }
 .slotsNum { color: var(--ink-2); font-size: 12px; font-variant-numeric: tabular-nums; }
 .water { margin: 0; font-size: 12px; color: var(--ink-2); }
@@ -845,10 +880,10 @@ function importPaste() {
 .slot.on { border-color: var(--ochre); background: var(--select-wash); }
 
 .buildings { list-style: none; margin: 10px 0 0; padding: 0; border-top: 1px solid var(--rule-soft); }
-.buildings li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 5px 0; border-bottom: 1px solid var(--rule-soft); font-size: 12px; }
+.buildings li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 4px 0; border-bottom: 1px solid var(--rule-soft); font-size: 12px; }
 .bname { color: var(--ink); font-weight: 600; }
-.bdesc { flex: 1 1 140px; min-width: 0; color: var(--ink-3); }
-.emptyLine { color: var(--ink-3); padding: 5px 0; }
+.bdesc { flex: 1 1 120px; min-width: 0; color: var(--ink-3); font-size: 12px; }
+.emptyLine { color: var(--ink-3); }
 .mini {
   appearance: none; border: 0; background: transparent;
   padding: 4px 8px; color: var(--ink-2); font: inherit; font-size: 12px; cursor: pointer;
@@ -880,11 +915,11 @@ button.act.primary:hover { border-color: var(--ochre); background: var(--cover-o
 .hint.warn { color: var(--warn); }
 .recNote { color: var(--ochre); }
 
-.found { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--rule-soft); }
-.found p { margin: 4px 0 0; font-size: 12px; }
-.foundAct { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; }
+.found { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--rule-soft); font-size: 13px; }
+.found .cost { color: var(--ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.found .act { margin-left: auto; }
 
-.log { margin-top: 24px; }
+.log { margin-top: 22px; }
 .log ul { list-style: none; margin: 8px 0 0; padding: 0; font-size: 12px; }
 .log li { padding: 3px 0; border-bottom: 1px dotted var(--rule-soft); }
 .saveBlock { margin-top: 18px; }
@@ -906,7 +941,7 @@ button.act.primary:hover { border-color: var(--ochre); background: var(--cover-o
 }
 .pasteBox .act { margin-top: 8px; }
 
-.tabHead { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.tabHead { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; }
 .tabHead h2 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: 0.04em; }
 .tabHead p { max-width: 640px; margin: 4px 0 0; font-size: 12px; }
 .tabActs { display: flex; align-items: center; gap: 8px; }
@@ -950,11 +985,18 @@ button.act.primary:hover { border-color: var(--ochre); background: var(--cover-o
 .fxRow input[type="number"] { width: 84px; height: 37px; padding: 4px 8px; }
 .unit { font-size: 12px; }
 .defFoot { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.usedNote { color: var(--ink-3); font-size: 12px; }
 .fxDef { padding: 12px 0; }
 .fxDesc { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 8px; font-size: 12px; }
-.kindHelp { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--rule-soft); color: var(--ink-3); font-size: 12px; }
-.kindHelp p { margin: 0 0 6px; }
-.kindHelp b { color: var(--ink-2); }
+
+.tune { display: grid; gap: 10px; max-width: 680px; margin-top: 16px; }
+.knob { border: 1px solid var(--rule-soft); border-radius: 3px; padding: 12px 14px; }
+fieldset.knob { margin: 0; }
+.knob legend { padding: 0 6px; color: var(--ink-2); font-size: 12px; letter-spacing: 0.06em; }
+.radio { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; cursor: pointer; }
+.radio .meta, .rowKnob .meta { margin-left: auto; color: var(--ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.rowKnob { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.rowKnob:hover, .radio:hover { border-color: var(--rule-hover); }
 
 select {
   max-width: 100%; padding: 6px 8px;
