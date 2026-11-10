@@ -67,6 +67,7 @@ npm test         # node --test tests/*.test.js
 11. **调节旋钮**：`options` 存 `growth`（slow/normal/fast）、`compactSlots`、`singleResource`、`pressure`。成长速度同时改劳力骰除数与建筑 p 成本；建筑实际花费统一走 `buildCost(state, def)`，界面与日志不得再直接读 `def.labor / def.p / def.materials`；紧凑槽位只改 `settlementStats` 的容量，不改建筑定义。
 12. **压力模式**：没有回合数，维护费由玩家在经营盘手动点结算；`settleMaintenance` 付不起时拆除建筑最多那处定居点的最后一座建筑抵账。城市满档后界面提供「原址重建」，走 `clearBuildings` 清空建筑，拆除不退款。
 13. **志向**：`ambitionStatus(state)` 按当前人口、定居点档位与数量、建筑种类数、国库直接判定，不落盘；界面只读展示，不提供手动勾选。
+14. 原始规则参考: D:\跑团\规则\勇敢鼠鼠\拥王者战役\杂项转换\王国经营简化.md
 
 ## 约束与坑
 
