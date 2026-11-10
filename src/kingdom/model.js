@@ -16,6 +16,18 @@ export const SETTLEMENT_TYPES = {
   city: { id: 'city', label: '城市', slots: 12, basePop: 45, tiers: ['village', 'town', 'city'], next: null },
 }
 
+export const COMPACT_SLOTS = { village: 3, town: 6, city: 9 }
+
+export const GROWTH_RATES = {
+  slow: { id: 'slow', label: '慢速', divisor: 8, costMultiplier: 1.5 },
+  normal: { id: 'normal', label: '标准', divisor: 6, costMultiplier: 1 },
+  fast: { id: 'fast', label: '快速', divisor: 4, costMultiplier: 0.75 },
+}
+
+export function defaultOptions() {
+  return { growth: 'normal', compactSlots: false, singleResource: false }
+}
+
 export const EFFECT_KINDS = [
   { id: 'population', label: '人口', hint: '加定居点人口，同时影响税收与劳力骰。' },
   { id: 'labor', label: '劳力骰', hint: '给全王国加劳力骰，每颗 d6。' },
@@ -184,6 +196,7 @@ export function defaultKingdomState() {
     materials: 4,
     laborPoints: 0,
     settled: false,
+    options: defaultOptions(),
     settlements: [capitalSettlement()],
     buildingDefs: defaultBuildingDefs(),
     effectDefs: defaultEffectDefs(),
@@ -207,6 +220,16 @@ function uniqueId(list, id, prefix) {
   let next = id && !seen.has(id) ? id : makeId(prefix)
   while (seen.has(next)) next = makeId(prefix)
   return next
+}
+
+export function normalizeOptions(raw) {
+  const base = defaultOptions()
+  if (!isObj(raw)) return base
+  return {
+    growth: GROWTH_RATES[raw.growth] ? raw.growth : base.growth,
+    compactSlots: raw.compactSlots === true,
+    singleResource: raw.singleResource === true,
+  }
 }
 
 export function normalizeEffectDefs(raw) {
@@ -333,6 +356,7 @@ export function normalizeKingdomState(raw) {
     materials: intOf(raw.materials, fallback.materials, 0),
     laborPoints: intOf(raw.laborPoints, 0, 0),
     settled: raw.settled === true,
+    options: normalizeOptions(raw.options),
     settlements: normalizeSettlements(raw.settlements, buildingDefs),
     buildingDefs,
     effectDefs,
@@ -340,8 +364,10 @@ export function normalizeKingdomState(raw) {
   }
 }
 
-export function settlementType(type) {
-  return SETTLEMENT_TYPES[type] || SETTLEMENT_TYPES.village
+export function settlementType(type, options) {
+  const base = SETTLEMENT_TYPES[type] || SETTLEMENT_TYPES.village
+  if (!options || !options.compactSlots) return base
+  return { ...base, slots: COMPACT_SLOTS[base.id] || base.slots }
 }
 
 // 定居点显示名：别名并列，和建筑别名保持一致
@@ -377,7 +403,7 @@ export function defLabel(def) {
 }
 
 export function settlementStats(state, settlement) {
-  const type = settlementType(settlement.type)
+  const type = settlementType(settlement.type, state.options)
   let popEffect = 0
   let laborBonus = 0
   let buildingP = 0
@@ -427,7 +453,8 @@ export function settlementStats(state, settlement) {
 export function kingdomStats(state) {
   const rows = state.settlements.map((s) => settlementStats(state, s))
   const totalPopulation = rows.reduce((sum, r) => sum + r.population, 0)
-  const baseLaborDice = Math.min(12, Math.max(3, Math.floor(totalPopulation / 6)))
+  const growth = GROWTH_RATES[state.options?.growth] || GROWTH_RATES.normal
+  const baseLaborDice = Math.min(12, Math.max(3, Math.floor(totalPopulation / growth.divisor)))
   const laborBonus = rows.reduce((sum, r) => sum + r.laborBonus, 0)
   const laborDice = Math.max(0, baseLaborDice + laborBonus)
   const tax = rows.reduce((sum, r) => sum + r.tax, 0)
@@ -496,8 +523,21 @@ export function startNewRound(state) {
 }
 
 export function allowedDefs(state, settlement) {
-  const type = settlementType(settlement.type)
+  const type = settlementType(settlement.type, state.options)
   return state.buildingDefs.filter((def) => type.tiers.includes(def.tier))
+}
+
+// 实际建造费：成长速度改 p 成本，单资源模式去掉劳力与物资
+export function buildCost(state, def) {
+  if (!def) return { labor: 0, p: 0, materials: 0 }
+  const growth = GROWTH_RATES[state.options?.growth] || GROWTH_RATES.normal
+  const p = Math.ceil((Number(def.p) || 0) * growth.costMultiplier)
+  if (state.options?.singleResource) return { labor: 0, p, materials: 0 }
+  return {
+    labor: Math.max(0, Number(def.labor) || 0),
+    p,
+    materials: Math.max(0, Number(def.materials) || 0),
+  }
 }
 
 export function countBuildingInstances(state, defId) {
@@ -519,7 +559,7 @@ export function canBuild(state, settlementId, defId) {
   if (!settlement) return { ok: false, reason: '没有这处定居点' }
   const def = defById(state, defId)
   if (!def) return { ok: false, reason: '没有这项建筑' }
-  if (!settlementType(settlement.type).tiers.includes(def.tier)) {
+  if (!settlementType(settlement.type, state.options).tiers.includes(def.tier)) {
     return { ok: false, reason: `这座定居点还不能建${tierLabel(def.tier)}档建筑` }
   }
   if (def.requiresWater && !settlement.water) {
@@ -533,10 +573,11 @@ export function canBuild(state, settlementId, defId) {
   if (def.slots > st.free) {
     return { ok: false, reason: `槽位不足：需要${def.slots}槽，只剩${st.free}槽` }
   }
+  const cost = buildCost(state, def)
   const missing = []
-  if (state.laborPoints < def.labor) missing.push(`劳力${def.labor - state.laborPoints}`)
-  if (state.treasury < def.p) missing.push(`${def.p - state.treasury}p`)
-  if (state.materials < def.materials) missing.push(`物资${def.materials - state.materials}`)
+  if (state.laborPoints < cost.labor) missing.push(`劳力${cost.labor - state.laborPoints}`)
+  if (state.treasury < cost.p) missing.push(`${cost.p - state.treasury}p`)
+  if (state.materials < cost.materials) missing.push(`物资${cost.materials - state.materials}`)
   if (missing.length) return { ok: false, reason: `还缺${missing.join('、')}` }
   return { ok: true, reason: '' }
 }
@@ -545,7 +586,7 @@ export function canUpgrade(state, settlementId) {
   const settlement = settlementById(state, settlementId)
   if (!settlement) return { ok: false, reason: '没有这处定居点' }
   const st = settlementStats(state, settlement)
-  const type = settlementType(settlement.type)
+  const type = settlementType(settlement.type, state.options)
   if (!st.full) return { ok: false, reason: '槽位还没填满' }
   if (!type.next) return { ok: false, reason: '已是最高档' }
   return { ok: true, reason: '' }
@@ -555,9 +596,9 @@ export function upgradeSettlement(state, settlementId) {
   const check = canUpgrade(state, settlementId)
   if (!check.ok) return check
   const settlement = settlementById(state, settlementId)
-  const from = settlementType(settlement.type)
+  const from = settlementType(settlement.type, state.options)
   settlement.type = from.next
-  pushLog(state, `${settlementLabel(settlement)} 槽位已满，升级为${settlementType(from.next).label}。`)
+  pushLog(state, `${settlementLabel(settlement)} 槽位已满，升级为${settlementType(from.next, state.options).label}。`)
   return { ok: true, type: settlement.type }
 }
 
@@ -566,12 +607,13 @@ export function buildBuilding(state, settlementId, defId) {
   if (!check.ok) return check
   const settlement = settlementById(state, settlementId)
   const def = defById(state, defId)
-  state.laborPoints -= def.labor
-  state.treasury -= def.p
-  state.materials -= def.materials
+  const cost = buildCost(state, def)
+  state.laborPoints -= cost.labor
+  state.treasury -= cost.p
+  state.materials -= cost.materials
   const building = { id: makeId('b'), defId: def.id }
   settlement.buildings.push(building)
-  pushLog(state, `在${settlementLabel(settlement)}建成${defLabel(def)}，花费${costText(def)}。`)
+  pushLog(state, `在${settlementLabel(settlement)}建成${defLabel(def)}，花费${costText(state, def)}。`)
   if (settlementStats(state, settlement).full) upgradeSettlement(state, settlement.id)
   return { ok: true, building }
 }
@@ -622,6 +664,42 @@ export function foundSettlement(state) {
   return { ok: true, settlement }
 }
 
+// 城市已满档时清空建筑，原址重新规划
+export function clearBuildings(state, settlementId) {
+  const settlement = settlementById(state, settlementId)
+  if (!settlement) return { ok: false, reason: '没有这处定居点' }
+  if (!settlement.buildings.length) return { ok: false, reason: '没有可拆除的建筑' }
+  const count = settlement.buildings.length
+  settlement.buildings = []
+  pushLog(state, `清空${settlementLabel(settlement)}的${count}座建筑，槽位全部空出。`)
+  return { ok: true, count }
+}
+
+export const AMBITIONS = [
+  { id: 'pop50', label: '人口 50', test: (ctx) => ctx.population >= 50 },
+  { id: 'pop100', label: '人口 100', test: (ctx) => ctx.population >= 100 },
+  { id: 'pop200', label: '人口 200', test: (ctx) => ctx.population >= 200 },
+  { id: 'town', label: '建成城镇', test: (ctx) => ctx.settlements.some((s) => s.type === 'town' || s.type === 'city') },
+  { id: 'city', label: '建成城市', test: (ctx) => ctx.settlements.some((s) => s.type === 'city') },
+  { id: 's3', label: '定居点 3', test: (ctx) => ctx.settlements.length >= 3 },
+  { id: 's5', label: '定居点 5', test: (ctx) => ctx.settlements.length >= 5 },
+  { id: 'b12', label: '建筑 12 种', test: (ctx) => ctx.types.size >= 12 },
+  { id: 'p1000', label: '国库 1000p', test: (ctx) => ctx.treasury >= 1000 },
+  { id: 'p3000', label: '国库 3000p', test: (ctx) => ctx.treasury >= 3000 },
+]
+
+export function ambitionStatus(state) {
+  const stats = kingdomStats(state)
+  const types = new Set(state.settlements.flatMap((s) => s.buildings.map((b) => b.defId)))
+  const ctx = {
+    population: stats.totalPopulation,
+    settlements: state.settlements,
+    treasury: state.treasury,
+    types,
+  }
+  return AMBITIONS.map((a) => ({ id: a.id, label: a.label, done: a.test(ctx) }))
+}
+
 export function effectSummary(state, def) {
   if (!def) return ''
   const parts = []
@@ -642,11 +720,13 @@ export function effectSummary(state, def) {
   return parts.length ? parts.join('、') : '无效果'
 }
 
-export function costText(def) {
+export function costText(state, def) {
   if (!def) return ''
-  const parts = [`劳力${def.labor}`]
-  if (def.p) parts.push(`${def.p}p`)
-  if (def.materials) parts.push(`${def.materials}物资`)
+  const cost = buildCost(state, def)
+  const parts = []
+  if (cost.labor) parts.push(`劳力${cost.labor}`)
+  parts.push(`${cost.p}p`)
+  if (cost.materials) parts.push(`${cost.materials}物资`)
   return parts.join(' · ')
 }
 

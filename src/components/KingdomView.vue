@@ -5,13 +5,18 @@ import { state as mapState } from '../mapStore.js'
 import {
   BUILDING_TIERS,
   EFFECT_KINDS,
+  GROWTH_RATES,
   SETTLEMENT_TYPES,
   UPKEEP_PER_BUILDING,
   allowedDefs,
+  ambitionStatus,
   buildBuilding,
+  buildCost,
   canBuild,
   canFoundSettlement,
+  clearBuildings,
   costText,
+  defaultOptions,
   countBuildingInstances,
   countEffectUsage,
   defaultBuildingDefs,
@@ -28,9 +33,13 @@ import {
   settleCheck,
   settleProduction,
   settlementStats,
+  settlementType,
   startNewRound,
   upgradeSettlement,
 } from '../kingdom/model.js'
+
+// 兼容热更新与旧存档：内存里的状态可能还没有 options
+if (!state.options) state.options = defaultOptions()
 
 const tab = ref('play')
 const message = ref('')
@@ -75,11 +84,14 @@ const recommendations = computed(() => {
 })
 const newCost = computed(() => newSettlementCost(state))
 const foundCheck = computed(() => canFoundSettlement(state))
+const ambitions = computed(() => ambitionStatus(state))
+const ambitionDone = computed(() => ambitions.value.filter((a) => a.done).length)
+const growthList = computed(() => Object.values(GROWTH_RATES))
 const recentLog = computed(() => state.log.slice(-12).reverse())
 
 function upgradePreview(st) {
   if (!st.type.next) return null
-  const next = SETTLEMENT_TYPES[st.type.next]
+  const next = settlementType(st.type.next, state.options)
   return {
     type: next,
     capacity: st.capacity + next.slots - st.type.slots,
@@ -189,9 +201,10 @@ function defScore(st, def) {
   }
   const taxDelta = Math.floor((st.population + addPop) / 2) - st.tax
   const netP = addP + taxDelta - UPKEEP_PER_BUILDING
+  const costP = buildCost(state, def).p
   return {
     netP,
-    payback: netP > 0 && def.p > 0 ? Math.ceil(def.p / netP) : 0,
+    payback: netP > 0 && costP > 0 ? Math.ceil(costP / netP) : 0,
     netPerSlot: netP / Math.max(1, def.slots),
   }
 }
@@ -210,7 +223,7 @@ function recText(settlement) {
 function defOptionLabel(settlement, def) {
   const block = structuralBlock(settlement, def)
   const rec = isRecommended(settlement, def.id) ? '推荐｜' : ''
-  return `${rec}${defLabel(def)}｜${costText(def)}${block ? `｜${block}` : ''}`
+  return `${rec}${defLabel(def)}｜${costText(state, def)}${block ? `｜${block}` : ''}`
 }
 
 function buildCheck(settlement) {
@@ -265,7 +278,7 @@ function upgrade(settlement) {
     say(result.reason, true)
     return
   }
-  const type = SETTLEMENT_TYPES[result.type]
+  const type = settlementType(result.type, state.options)
   say(`已升级为${type.label}：${type.slots}槽，基础人口${type.basePop}。`)
   flash(settlement.id)
 }
@@ -288,7 +301,18 @@ function found() {
     say(result.reason, true)
     return
   }
-  say(`已新建${result.settlement.name}（${SETTLEMENT_TYPES.village.slots}槽村庄）。`)
+  say(`已新建${result.settlement.name}（${settlementType('village', state.options).slots}槽村庄）。`)
+}
+
+function rebuild(settlement) {
+  if (!window.confirm(`清空${settlement.name}的全部建筑？槽位会空出，不退款。`)) return
+  const result = clearBuildings(state, settlement.id)
+  if (!result.ok) {
+    say(result.reason, true)
+    return
+  }
+  say(`已清空 ${result.count} 座建筑，槽位全部空出。`)
+  flash(settlement.id)
 }
 
 function addDef() {
@@ -462,10 +486,19 @@ function importPaste() {
       </label>
     </div>
 
+    <div class="ambitions">
+      <span class="ambLabel">志向 {{ ambitionDone }}/{{ ambitions.length }}</span>
+      <label v-for="a in ambitions" :key="a.id" class="amb" :class="{ done: a.done }">
+        <input type="checkbox" :checked="a.done" disabled />
+        <span>{{ a.label }}</span>
+      </label>
+    </div>
+
     <nav class="tabs" aria-label="王国经营视图">
       <button class="tab" :class="{ on: tab === 'play' }" :aria-current="tab === 'play' ? 'page' : undefined" @click="tab = 'play'">经营盘</button>
       <button class="tab" :class="{ on: tab === 'buildings' }" :aria-current="tab === 'buildings' ? 'page' : undefined" @click="tab = 'buildings'">建筑表</button>
       <button class="tab" :class="{ on: tab === 'effects' }" :aria-current="tab === 'effects' ? 'page' : undefined" @click="tab = 'effects'">效果类型</button>
+      <button class="tab" :class="{ on: tab === 'tune' }" :aria-current="tab === 'tune' ? 'page' : undefined" @click="tab = 'tune'">调节</button>
     </nav>
 
     <div v-if="tab === 'play'" class="play">
@@ -525,6 +558,7 @@ function importPaste() {
               <p v-else class="hint">槽位已满，可在原址拆除重建，或在别处新建定居点。</p>
             </div>
             <button v-if="up" class="act primary" :aria-label="'升级' + (s.name || '定居点') + '为' + up.type.label" @click="upgrade(s)">升级为{{ up.type.label }}</button>
+            <button v-else-if="st.totalCount" class="mini" @click="rebuild(s)">原址重建</button>
           </div>
           <template v-else>
             <div class="buildRow">
@@ -535,7 +569,7 @@ function importPaste() {
               <button class="act" :disabled="!buildCheck(s).ok" @click="build(s)">建造</button>
             </div>
             <p v-if="pickOf(s)" class="hint" :class="{ warn: !buildCheck(s).ok }">
-              {{ buildCheck(s).ok ? `${effectSummary(state, selectedDef(s))}；${costText(selectedDef(s))}` : buildCheck(s).reason }}<span v-if="isRecommended(s, pickOf(s))" class="recNote">；{{ recText(s) }}</span>
+              {{ buildCheck(s).ok ? `${effectSummary(state, selectedDef(s))}；${costText(state, selectedDef(s))}` : buildCheck(s).reason }}<span v-if="isRecommended(s, pickOf(s))" class="recNote">；{{ recText(s) }}</span>
             </p>
           </template>
         </article>
@@ -594,7 +628,7 @@ function importPaste() {
             <summary>
               <span class="sumName">{{ d.name || '未命名建筑' }}</span>
               <span v-if="d.alias" class="sumAlias">（{{ d.alias }}）</span>
-              <span class="sumMeta">{{ d.slots }}槽 · {{ costText(d) }}</span>
+              <span class="sumMeta">{{ d.slots }}槽 · {{ costText(state, d) }}</span>
               <span class="sumFx">{{ effectSummary(state, d) }}</span>
               <span v-if="d.requiresWater || d.limitPerSettlement" class="sumTags">
                 <span v-if="d.requiresWater" class="tag">临水</span>
@@ -676,6 +710,33 @@ function importPaste() {
         <p v-for="k in visibleKinds" :key="k.id"><b>{{ k.label }}</b>：{{ k.hint }}</p>
       </div>
     </div>
+
+    <div v-if="tab === 'tune'" class="tableTab">
+      <header class="tabHead">
+        <div>
+          <h2>调节</h2>
+          <p class="muted">成长速度、槽位与资源口径即时生效；维护费固定为每座建筑 5p，已在经营盘统一结算。</p>
+        </div>
+      </header>
+      <fieldset class="knob">
+        <legend>成长速度</legend>
+        <label v-for="g in growthList" :key="g.id" class="radio">
+          <input type="radio" :value="g.id" v-model="state.options.growth" />
+          <span>{{ g.label }}</span>
+          <span class="meta">劳力骰 ÷{{ g.divisor }} · 建造成本 ×{{ g.costMultiplier }}</span>
+        </label>
+      </fieldset>
+      <label class="knob rowKnob">
+        <input type="checkbox" v-model="state.options.compactSlots" />
+        <span>紧凑槽位</span>
+        <span class="meta">村庄 3 · 城镇 6 · 城市 9</span>
+      </label>
+      <label class="knob rowKnob">
+        <input type="checkbox" v-model="state.options.singleResource" />
+        <span>单资源模式</span>
+        <span class="meta">建筑只花 p</span>
+      </label>
+    </div>
   </section>
 </template>
 
@@ -711,6 +772,27 @@ function importPaste() {
 .ledgerValue .dice { color: var(--ink-2); font-size: 12px; font-weight: 400; white-space: nowrap; }
 .ledgerValue .unit { color: var(--ink-2); font-size: 12px; font-weight: 400; }
 .ledgerHint { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.5; }
+
+.ambitions { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 6px; margin-top: 14px; }
+.ambLabel { margin-right: 2px; color: var(--ink-3); font-size: 12px; letter-spacing: 0.08em; font-variant-numeric: tabular-nums; }
+.amb {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px 2px 5px;
+  border: 1px solid var(--rule-soft); border-radius: 2px;
+  color: var(--ink-3); font-size: 12px; cursor: default;
+}
+.amb input { width: 12px; height: 12px; margin: 0; }
+.amb.done { border-color: var(--ochre-soft); background: var(--wash-ochre); color: var(--ochre); }
+
+.knob {
+  margin: 16px 0 0; padding: 12px 14px;
+  border: 1px solid var(--rule-soft); border-radius: 3px;
+}
+.knob legend { padding: 0 6px; color: var(--ink-2); font-size: 12px; letter-spacing: 0.08em; }
+.radio { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; margin-top: 6px; color: var(--ink-2); font-size: 12px; }
+.radio input { margin: 0; }
+.radio .meta, .rowKnob .meta { color: var(--ink-3); }
+.rowKnob { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; color: var(--ink-2); font-size: 12px; }
+.rowKnob input { margin: 0; }
 
 .tabs { display: flex; gap: 4px; margin: 18px 0 16px; border-bottom: 1px solid var(--rule); }
 .tab {
