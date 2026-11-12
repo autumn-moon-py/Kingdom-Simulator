@@ -48,6 +48,8 @@ async function pruneBackups(key) {
 }
 
 async function handleApi(req, res, url) {
+  // 存档请求频率低，避免浏览器复用已关闭的空闲连接
+  res.setHeader('Connection', 'close')
   if (url.pathname !== '/api/save') return send(res, 404, 'not found')
   if (req.method === 'GET') {
     const key = url.searchParams.get('key')
@@ -126,6 +128,9 @@ const server = createServer(async (req, res) => {
     send(res, 500, 'server error')
   }
 })
+
+server.keepAliveTimeout = 65000
+server.headersTimeout = 66000
 
 ensureDirs().then(() => {
   server.listen(PORT, HOST, () => {

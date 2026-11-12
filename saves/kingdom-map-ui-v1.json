@@ -1,10 +1,10 @@
 {
  "showRegions": true,
  "showNames": false,
- "showPins": false,
- "onlyMarked": true,
+ "showPins": true,
+ "onlyMarked": false,
  "showColumns": false,
- "colLeft": 16,
+ "colLeft": 14,
  "colRight": 25,
  "scopeCodes": [
   "RL",
@@ -12,27 +12,13 @@
   "TW",
   "KL",
   "NM",
-  "SH",
-  "DS",
-  "NH",
-  "LV",
-  "HT",
-  "DR",
-  "TL",
-  "RU",
-  "GL",
-  "PX",
-  "GU",
-  "NU",
-  "TV",
-  "BR",
-  "BV"
+  "SH"
  ],
  "sheetIds": [
   "m3",
   "m4",
   "m2"
  ],
- "activeSheet": "m2",
- "updatedAt": 1793892779011
+ "activeSheet": "m3",
+ "updatedAt": 1794483856453
 }

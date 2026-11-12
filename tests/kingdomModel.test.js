@@ -1,15 +1,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  ambitionStatus,
   buildBuilding,
   buildCost,
   canBuild,
   canFoundSettlement,
   clearBuildings,
+  defaultBuildingDefs,
   defaultKingdomState,
-  defaultOptions,
   defLabel,
+  depositTreasury,
   effectSummary,
   foundSettlement,
   kingdomStats,
@@ -94,6 +94,28 @@ test('结算：每轮全额结算，新一轮重置劳力', () => {
   assert.equal(saved.settled, true)
 })
 
+test('入库：正负金额调整国库并记录备注', () => {
+  const state = defaultKingdomState()
+  const before = state.treasury
+
+  const plus = depositTreasury(state, 25, '冒险分成')
+  assert.equal(plus.ok, true)
+  assert.equal(plus.amount, 25)
+  assert.equal(state.treasury, before + 25)
+  assert.match(state.log.at(-1).text, /入库：\+25p/)
+  assert.match(state.log.at(-1).text, /备注：冒险分成/)
+
+  const minus = depositTreasury(state, -10, '采购')
+  assert.equal(minus.ok, true)
+  assert.equal(state.treasury, before + 15)
+  assert.match(state.log.at(-1).text, /入库：-10p/)
+  assert.match(state.log.at(-1).text, /备注：采购/)
+
+  assert.equal(depositTreasury(state, -99999).ok, false)
+  assert.equal(state.treasury, before + 15)
+  assert.equal(depositTreasury(state, 0).ok, false)
+})
+
 test('维护费不足时阻止结算，避免国库变负', () => {
   const state = defaultKingdomState()
   state.settlements[0].buildings = ['house', 'farm', 'farm', 'farm'].map((defId, i) => ({ id: `b${i}`, defId }))
@@ -105,62 +127,52 @@ test('维护费不足时阻止结算，避免国库变负', () => {
   assert.equal(state.treasury, 0)
 })
 
-test('调节旋钮：成长速度改变劳力骰除数与建造成本', () => {
-  const state = defaultKingdomState()
-  const house = state.buildingDefs.find((d) => d.id === 'house')
-  assert.equal(kingdomStats(state).baseLaborDice, 4)
-
-  state.options.growth = 'slow'
-  assert.equal(kingdomStats(state).baseLaborDice, 3)
-  assert.deepEqual(buildCost(state, house), { labor: 3, p: 30, materials: 0 })
-
-  state.options.growth = 'fast'
-  assert.equal(kingdomStats(state).baseLaborDice, 6)
-  assert.deepEqual(buildCost(state, house), { labor: 3, p: 15, materials: 0 })
-
-  state.options.growth = 'normal'
-  assert.equal(kingdomStats(state).baseLaborDice, 4)
-  assert.deepEqual(buildCost(state, house), { labor: 3, p: 20, materials: 0 })
+test('建筑表 v4：名称、删除项与新增建筑', () => {
+  const defs = defaultBuildingDefs()
+  const ids = defs.map((d) => d.id)
+  for (const id of ['alehouse', 'graveyard', 'brewery', 'blacksmith', 'academy', 'museum']) {
+    assert.ok(ids.includes(id))
+  }
+  for (const id of ['school', 'university', 'grand_market', 'theater']) {
+    assert.equal(ids.includes(id), false)
+  }
+  const names = Object.fromEntries(defs.map((d) => [d.id, d.name]))
+  assert.equal(names.house, '民房')
+  assert.equal(names.tavern, '旅店')
+  assert.equal(names.town_hall, '议事厅')
+  assert.equal(names.academy, '学院')
+  assert.equal(names.alehouse, '酒馆')
+  assert.equal(names.graveyard, '墓地')
+  assert.ok(defs.every((d) => !d.alias))
 })
 
-test('调节旋钮：紧凑槽位与单资源模式即时生效', () => {
+test('民心与动荡：建筑民心汇总、事件修正和抵消税收', () => {
   const state = defaultKingdomState()
-  state.options.compactSlots = true
-  assert.equal(settlementStats(state, state.settlements[0]).capacity, 3)
+  state.settlements[0].buildings.push({ id: 'b_shrine', defId: 'shrine' })
 
-  state.settlements[0].type = 'town'
-  assert.equal(settlementStats(state, state.settlements[0]).capacity, 6)
-  state.settlements[0].type = 'village'
+  let stats = kingdomStats(state)
+  assert.equal(stats.buildingMorale, 1)
+  assert.equal(stats.morale, 1)
+  assert.equal(stats.unrest, 0)
+  assert.equal(stats.netMorale, 1)
+  assert.equal(stats.moraleTax, 1)
+  assert.equal(stats.baseTax, 15)
+  assert.equal(stats.tax, 16)
 
-  state.options.singleResource = true
-  const workshop = state.buildingDefs.find((d) => d.id === 'workshop')
-  assert.deepEqual(buildCost(state, workshop), { labor: 0, p: 20, materials: 0 })
-  state.settlements[0].type = 'town'
-  state.laborPoints = 0
-  state.treasury = 100
-  state.materials = 0
-  assert.equal(canBuild(state, 'capital', 'workshop').ok, true)
-})
+  state.moraleAdjust = 2
+  assert.equal(kingdomStats(state).morale, 3)
+  assert.equal(kingdomStats(state).tax, 18)
 
-test('志向：人口、城镇、建筑种类与国库自动判定', () => {
-  const state = defaultKingdomState()
-  const done = (id) => ambitionStatus(state).find((a) => a.id === id).done
-  assert.equal(done('pop50'), false)
-  assert.equal(done('p1000'), false)
-  assert.equal(done('p3000'), false)
-  assert.equal(done('town'), false)
+  state.unrest = 5
+  const hindered = kingdomStats(state)
+  assert.equal(hindered.netMorale, -2)
+  assert.equal(hindered.moraleTax, -2)
+  assert.equal(hindered.tax, 13)
 
-  state.treasury = 1000
-  assert.equal(done('p1000'), true)
-  assert.equal(done('p3000'), false)
-  state.treasury = 3000
-  assert.equal(done('p3000'), true)
-
-  state.settlements[0].type = 'town'
-  assert.equal(done('town'), true)
-  state.settlements[0].buildings = state.buildingDefs.map((d, i) => ({ id: `b${i}`, defId: d.id }))
-  assert.equal(done('b12'), true)
-  assert.equal(done('pop50'), true)
+  state.unrest = 99
+  assert.equal(kingdomStats(state).unrest, 20)
+  state.moraleAdjust = -99
+  assert.equal(kingdomStats(state).morale, 0)
 })
 
 test('城市原址重建：清空建筑后槽位全部空出', () => {
@@ -173,21 +185,7 @@ test('城市原址重建：清空建筑后槽位全部空出', () => {
   assert.equal(clearBuildings(state, 'missing').ok, false)
 })
 
-test('调节旋钮存档：默认值补齐，坏值退回标准', () => {
-  assert.deepEqual(defaultKingdomState().options, defaultOptions())
-  assert.deepEqual(normalizeKingdomState({}).options, defaultOptions())
-
-  const normalized = normalizeKingdomState({
-    options: { growth: 'fast', compactSlots: true, singleResource: 1 },
-  })
-  assert.deepEqual(normalized.options, {
-    growth: 'fast',
-    compactSlots: true,
-    singleResource: false,
-  })
-})
-
-test('v2 存档补齐补充建筑与说明效果，v3 不再补回已删除项', () => {
+test('旧存档迁移到 v4：建筑改名、旧地标移除、战役建筑补齐、民心转为数值', () => {
   const old = defaultKingdomState()
   old.version = 2
   const newBuildings = ['tavern', 'shrine', 'wall', 'library', 'trade_post']
@@ -196,9 +194,17 @@ test('v2 存档补齐补充建筑与说明效果，v3 不再补回已删除项',
   old.effectDefs = old.effectDefs.filter((e) => !newEffects.includes(e.id))
 
   const migrated = normalizeKingdomState(old)
-  assert.equal(migrated.version, 3)
+  assert.equal(migrated.version, 4)
   for (const id of newBuildings) assert.ok(migrated.buildingDefs.some((d) => d.id === id))
   for (const id of newEffects) assert.ok(migrated.effectDefs.some((e) => e.id === id))
+  for (const id of ['academy', 'alehouse', 'brewery', 'museum', 'blacksmith', 'graveyard']) {
+    assert.ok(migrated.buildingDefs.some((d) => d.id === id))
+  }
+  for (const id of ['school', 'university', 'grand_market', 'theater']) {
+    assert.equal(migrated.buildingDefs.some((d) => d.id === id), false)
+  }
+  assert.equal(migrated.buildingDefs.find((d) => d.id === 'tavern').name, '旅店')
+  assert.equal(migrated.effectDefs.find((e) => e.id === 'morale').kind, 'morale')
 
   const v3 = normalizeKingdomState({ ...old, version: 3 })
   assert.equal(v3.buildingDefs.some((d) => d.id === 'tavern'), false)

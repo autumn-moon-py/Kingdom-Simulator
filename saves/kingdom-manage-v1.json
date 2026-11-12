@@ -1,18 +1,29 @@
 {
- "version": 3,
- "treasury": 1536,
- "materials": 4,
+ "version": 4,
+ "treasury": 1812,
+ "materials": 9,
  "laborPoints": 0,
- "settled": false,
+ "settled": true,
+ "moraleAdjust": 0,
+ "unrest": 1,
  "settlements": [
   {
    "id": "capital",
    "name": "都城",
    "alias": "达拉崩吧",
-   "type": "town",
+   "type": "city",
    "water": true,
    "hexes": [
-    "TW3"
+    "TW3",
+    "GB19",
+    "TW2",
+    "TW7",
+    "TW8",
+    "TW4",
+    "TW5",
+    "TW6",
+    "SH2",
+    "KL5"
    ],
    "buildings": [
     {
@@ -26,6 +37,30 @@
     {
      "id": "capital_newspaper",
      "defId": "newspaper"
+    },
+    {
+     "id": "capital_dock",
+     "defId": "dock"
+    },
+    {
+     "id": "capital_palace",
+     "defId": "palace"
+    },
+    {
+     "id": "b_mwcyc4rc_47",
+     "defId": "road"
+    },
+    {
+     "id": "b_mwcyexus_254",
+     "defId": "graveyard"
+    },
+    {
+     "id": "b_mwcyjpuq_638",
+     "defId": "blacksmith"
+    },
+    {
+     "id": "b_mwcykopw_720",
+     "defId": "market"
     }
    ]
   },
@@ -33,12 +68,30 @@
    "id": "oleg",
    "name": "欧莱格村庄",
    "alias": "",
-   "type": "village",
+   "type": "town",
    "water": false,
    "hexes": [
     "RL1",
     "RL5",
-    "GB8"
+    "GB8",
+    "GB6",
+    "RL2",
+    "RL3",
+    "RL4",
+    "RLN11",
+    "RLN10",
+    "RL6",
+    "RLN12",
+    "RLN13",
+    "RLN14",
+    "RLN8",
+    "RLN9",
+    "GB3",
+    "GB4",
+    "GB7",
+    "GB9",
+    "GBN1",
+    "GBN2"
    ],
    "buildings": [
     {
@@ -52,6 +105,56 @@
     {
      "id": "oleg_trade_post",
      "defId": "trade_post"
+    },
+    {
+     "id": "oleg_temple",
+     "defId": "shrine"
+    },
+    {
+     "id": "b_mwcyciiv_83",
+     "defId": "brewery"
+    },
+    {
+     "id": "b_mwcynews_1016",
+     "defId": "alehouse"
+    },
+    {
+     "id": "b_mwcynr70_1106",
+     "defId": "tavern"
+    }
+   ]
+  },
+  {
+   "id": "s_mwcydics_109",
+   "name": "泰兹瑞亚村庄",
+   "alias": "",
+   "type": "town",
+   "water": true,
+   "hexes": [
+    "GB16",
+    "GB17",
+    "GB18",
+    "GB10",
+    "GB12",
+    "GB13",
+    "GB15"
+   ],
+   "buildings": [
+    {
+     "id": "b_mwcyel3c_163",
+     "defId": "house"
+    },
+    {
+     "id": "b_mwcyenm0_207",
+     "defId": "tavern"
+    },
+    {
+     "id": "b_mwcyf6cr_304",
+     "defId": "road"
+    },
+    {
+     "id": "b_mwcyizw5_578",
+     "defId": "alehouse"
     }
    ]
   }
@@ -59,7 +162,7 @@
  "buildingDefs": [
   {
    "id": "house",
-   "name": "民居",
+   "name": "民房",
    "alias": "",
    "tier": "village",
    "slots": 1,
@@ -135,7 +238,7 @@
   },
   {
    "id": "workshop",
-   "name": "作坊",
+   "name": "工坊",
    "alias": "",
    "tier": "town",
    "slots": 1,
@@ -149,25 +252,6 @@
     {
      "type": "p",
      "value": 15
-    }
-   ]
-  },
-  {
-   "id": "school",
-   "name": "学堂",
-   "alias": "",
-   "tier": "town",
-   "slots": 1,
-   "labor": 6,
-   "p": 40,
-   "materials": 2,
-   "limitPerSettlement": 0,
-   "requiresWater": false,
-   "description": "",
-   "effects": [
-    {
-     "type": "labor",
-     "value": 1
     }
    ]
   },
@@ -192,7 +276,7 @@
   },
   {
    "id": "town_hall",
-   "name": "镇公所",
+   "name": "议事厅",
    "alias": "",
    "tier": "town",
    "slots": 2,
@@ -210,67 +294,6 @@
     {
      "type": "labor",
      "value": 1
-    }
-   ]
-  },
-  {
-   "id": "grand_market",
-   "name": "大市集",
-   "alias": "",
-   "tier": "city",
-   "slots": 2,
-   "labor": 8,
-   "p": 100,
-   "materials": 4,
-   "limitPerSettlement": 0,
-   "requiresWater": false,
-   "description": "",
-   "effects": [
-    {
-     "type": "p",
-     "value": 30
-    }
-   ]
-  },
-  {
-   "id": "university",
-   "name": "大学",
-   "alias": "",
-   "tier": "city",
-   "slots": 2,
-   "labor": 10,
-   "p": 120,
-   "materials": 5,
-   "limitPerSettlement": 1,
-   "requiresWater": false,
-   "description": "每定居点限1座",
-   "effects": [
-    {
-     "type": "labor",
-     "value": 2
-    }
-   ]
-  },
-  {
-   "id": "theater",
-   "name": "剧院",
-   "alias": "",
-   "tier": "city",
-   "slots": 2,
-   "labor": 8,
-   "p": 80,
-   "materials": 4,
-   "limitPerSettlement": 1,
-   "requiresWater": false,
-   "description": "每定居点限1座",
-   "effects": [
-    {
-     "type": "population",
-     "value": 10
-    },
-    {
-     "type": "p",
-     "value": 15
     }
    ]
   },
@@ -360,7 +383,7 @@
   },
   {
    "id": "tavern",
-   "name": "客栈",
+   "name": "旅店",
    "alias": "",
    "tier": "village",
    "slots": 1,
@@ -369,7 +392,7 @@
    "materials": 0,
    "limitPerSettlement": 0,
    "requiresWater": false,
-   "description": "提供食宿与消息；民心按桌面裁定",
+   "description": "提供食宿与消息",
    "effects": [
     {
      "type": "p",
@@ -392,7 +415,7 @@
    "materials": 0,
    "limitPerSettlement": 0,
    "requiresWater": false,
-   "description": "民心按桌面裁定",
+   "description": "安抚社区",
    "effects": [
     {
      "type": "population",
@@ -464,6 +487,144 @@
      "value": 1
     }
    ]
+  },
+  {
+   "id": "alehouse",
+   "name": "酒馆",
+   "alias": "",
+   "tier": "village",
+   "slots": 1,
+   "labor": 3,
+   "p": 20,
+   "materials": 0,
+   "limitPerSettlement": 0,
+   "requiresWater": false,
+   "description": "饮酒与社交",
+   "effects": [
+    {
+     "type": "p",
+     "value": 3
+    },
+    {
+     "type": "morale",
+     "value": 2
+    }
+   ]
+  },
+  {
+   "id": "graveyard",
+   "name": "墓地",
+   "alias": "",
+   "tier": "village",
+   "slots": 1,
+   "labor": 3,
+   "p": 15,
+   "materials": 0,
+   "limitPerSettlement": 1,
+   "requiresWater": false,
+   "description": "安抚亡者与社区；每定居点限1座",
+   "effects": [
+    {
+     "type": "morale",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "id": "brewery",
+   "name": "酿酒厂",
+   "alias": "",
+   "tier": "town",
+   "slots": 1,
+   "labor": 5,
+   "p": 30,
+   "materials": 3,
+   "limitPerSettlement": 0,
+   "requiresWater": false,
+   "description": "酿造与售卖酒类",
+   "effects": [
+    {
+     "type": "p",
+     "value": 5
+    },
+    {
+     "type": "material",
+     "value": 3
+    },
+    {
+     "type": "morale",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "id": "blacksmith",
+   "name": "铁匠铺",
+   "alias": "",
+   "tier": "town",
+   "slots": 1,
+   "labor": 5,
+   "p": 25,
+   "materials": 2,
+   "limitPerSettlement": 1,
+   "requiresWater": false,
+   "description": "打造工具与兵器；每定居点限1座",
+   "effects": [
+    {
+     "type": "p",
+     "value": 10
+    },
+    {
+     "type": "defense",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "id": "academy",
+   "name": "学院",
+   "alias": "",
+   "tier": "city",
+   "slots": 2,
+   "labor": 10,
+   "p": 120,
+   "materials": 5,
+   "limitPerSettlement": 1,
+   "requiresWater": false,
+   "description": "研究线索按桌面裁定；每定居点限1座",
+   "effects": [
+    {
+     "type": "labor",
+     "value": 2
+    }
+   ]
+  },
+  {
+   "id": "museum",
+   "name": "博物馆",
+   "alias": "",
+   "tier": "city",
+   "slots": 2,
+   "labor": 8,
+   "p": 100,
+   "materials": 4,
+   "limitPerSettlement": 1,
+   "requiresWater": false,
+   "description": "展品与研究线索按桌面裁定；每定居点限1座",
+   "effects": [
+    {
+     "type": "p",
+     "value": 10
+    },
+    {
+     "type": "morale",
+     "value": 2
+    },
+    {
+     "type": "research",
+     "value": 1
+    }
+   ]
   }
  ],
  "effectDefs": [
@@ -507,7 +668,7 @@
    "id": "morale",
    "label": "民心",
    "unit": "",
-   "kind": "note"
+   "kind": "morale"
   },
   {
    "id": "garrison",
@@ -550,6 +711,91 @@
   {
    "id": "log_oleg_trade_post",
    "text": "补充：欧莱格的 RL1 贸易站作为既有建筑免费计入。"
+  },
+  {
+   "id": "log_oleg_temple",
+   "text": "占据 GB6 埃拉斯蒂尔神庙，欧莱格村庄免费获得神殿（不花劳力与资源）；槽位已满，升为城镇。"
+  },
+  {
+   "id": "log_capital_dock",
+   "text": "都城（达拉崩吧）免费补充码头：不花劳力与资源，临水条件满足。"
+  },
+  {
+   "id": "log_capital_palace",
+   "text": "都城（达拉崩吧）免费补充宫殿：TW3 作为都城本应拥有，不花劳力与资源。"
+  },
+  {
+   "id": "log_mwcadndh_177",
+   "text": "结算：都城（达拉崩吧） +45p、欧莱格村庄 +7p；合计+54p、+6物资（税收49p、建筑50p、维护45p；民心2－动荡0＝+2，税收+2p）。"
+  },
+  {
+   "id": "log_mwcwlg0u_26",
+   "text": "入库：+60p，国库现有 2180p。"
+  },
+  {
+   "id": "log_mwcyc4rc_48",
+   "text": "在都城（达拉崩吧）建成道路，花费劳力4 · 15p。"
+  },
+  {
+   "id": "log_mwcyc4rc_49",
+   "text": "都城（达拉崩吧） 槽位已满，升级为城市。"
+  },
+  {
+   "id": "log_mwcyciiv_84",
+   "text": "在欧莱格村庄建成酿酒厂，花费劳力5 · 30p · 3物资。"
+  },
+  {
+   "id": "log_mwcydics_110",
+   "text": "新建定居点3，花费6劳力、200p、5物资。"
+  },
+  {
+   "id": "log_mwcyel3c_164",
+   "text": "在定居点3建成民房，花费劳力3 · 20p。"
+  },
+  {
+   "id": "log_mwcyenm0_208",
+   "text": "在定居点3建成旅店，花费劳力3 · 25p。"
+  },
+  {
+   "id": "log_mwcyexus_255",
+   "text": "在都城（达拉崩吧）建成墓地，花费劳力3 · 15p。"
+  },
+  {
+   "id": "log_mwcyf6cr_305",
+   "text": "在定居点3建成道路，花费劳力4 · 15p。"
+  },
+  {
+   "id": "log_mwcyizw5_579",
+   "text": "在泰兹瑞亚村庄建成酒馆，花费劳力3 · 20p。"
+  },
+  {
+   "id": "log_mwcyizw5_580",
+   "text": "泰兹瑞亚村庄 槽位已满，升级为城镇。"
+  },
+  {
+   "id": "log_mwcyjpur_639",
+   "text": "在都城（达拉崩吧）建成铁匠铺，花费劳力5 · 25p · 2物资。"
+  },
+  {
+   "id": "log_mwcykopw_721",
+   "text": "在都城（达拉崩吧）建成市集，花费劳力4 · 30p。"
+  },
+  {
+   "id": "log_mwcynewt_1017",
+   "text": "在欧莱格村庄建成酒馆，花费劳力3 · 20p。"
+  },
+  {
+   "id": "log_mwcynr70_1107",
+   "text": "在欧莱格村庄建成旅店，花费劳力3 · 25p。"
+  },
+  {
+   "id": "log_mwcyoddn_1246",
+   "text": "开始新一轮经营，劳力清零。"
+  },
+  {
+   "id": "log_mwcyoph4_1295",
+   "text": "结算：都城（达拉崩吧） +52p、欧莱格村庄 +5p、泰兹瑞亚村庄 +5p；合计+72p、+9物资（税收81p、建筑91p、维护100p；民心10－动荡0＝+10，税收+10p）。"
   }
- ]
+ ],
+ "savedAt": 1794483719927
 }

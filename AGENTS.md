@@ -57,19 +57,18 @@ npm test         # node --test tests/*.test.js
 ## 王国经营模型
 
 1. **数据驱动**：`buildingDefs` 存建筑名称、别名、档位、槽位、劳力/p/物资成本、每定居点上限、临水要求与效果；`effectDefs` 存效果名称、单位与计算口径。界面改表即时影响结算，已建成建筑沿用当前定义。
-2. **效果口径**：`population / labor / incomeP / incomeMaterial / slots / note` 六种；自定义效果类型只是换名称、单位与口径，`note` 只展示不计入数值。
+2. **效果口径**：`population / labor / incomeP / incomeMaterial / slots / morale / note` 七种；自定义效果类型只是换名称、单位与口径，`note` 只展示不计入数值。建筑 `morale` 汇总为王国民心。
 3. **劳力**：界面只显示应掷的 d6 数量作为提示，不内置随机投掷；玩家外部掷骰后把总点数填进 `laborPoints`。
 4. **立即生效**：建筑与定居点没有 `builtTurn / foundedTurn`，建成即计入人口、税收、产出与劳力。
 5. **升级**：槽位使用量达到上限时立即升级，升级不花资源；已满槽的旧存档可在界面手动点升级。
 6. **存档**：王国状态独立存 `kingdom-manage-v1`，与地图的 `kingdom-map-v1` 互不覆盖；正常化函数会清洗坏值并丢弃指向不存在建筑定义的实例。
-7. **地图联动**：定居点的 `hexes` 数组保存关联的地图格编号，可选项来自地图存档 `hexClaimed` 的键，可多选；只读引用地图状态，不写回地图存档。若某格后来取消占据，关联保留但界面标为「含未占据」。
+7. **地图联动**：定居点的 `hexes` 数组保存关联的地图格编号，可选项来自地图存档 `hexClaimed` 的键，可多选；同一格不能同时属于两处定居点，他人已占的格仍列出但禁用并标出归属。只读引用地图状态，不写回地图存档。若某格后来取消占据，关联保留但界面标为「含未占据」。
 8. **记录字段**：定居点的 `alias`（别名）只做展示与存档；不记录王国等级，也不记录回合数。
-9. **存档迁移**：王国存档可导出 JSON、粘贴导入，也可用文件输入导入；导入走 `normalizeKingdomState` 清洗，旧版的 `turn / level / laborRolled / builtTurn / foundedTurn` 会被丢弃，单值 `hex` 自动转为 `hexes` 数组。
-10. **文件存档**：`npm run serve` 启动 `server.mjs` 后，地图与王国优先读写项目根目录 `saves/kingdom-map-v1.json` 和 `saves/kingdom-manage-v1.json`；`POST /api/save` 原子写入前会在 `saves/backups/` 留最多 5 份备份。localStorage 继续作为离线兜底，两者内容一致。
-11. **调节旋钮**：`options` 存 `growth`（slow/normal/fast）、`compactSlots`、`singleResource`。成长速度同时改劳力骰除数与建筑 p 成本；建筑实际花费统一走 `buildCost(state, def)`，界面与日志不得再直接读 `def.labor / def.p / def.materials`；紧凑槽位只改 `settlementStats` 的容量，不改建筑定义。
-12. **维护费**：每座建筑每次结算 5p，已并入 `kingdomStats` 的 `upkeep / netIncomeP`；经营盘统一用净产出结算，不做压力模式自动拆房。维护费不足时由玩家拆除建筑或补足国库，国库不为负。
-13. **志向**：`ambitionStatus(state)` 按当前人口、定居点档位与数量、建筑种类数、国库直接判定，不落盘；界面只读展示，包含 1000p 与 3000p。
-14. 原始规则参考: D:\跑团\规则\勇敢鼠鼠\拥王者战役\杂项转换\王国经营简化.md
+9. **存档迁移**：王国存档可导出 JSON、粘贴导入，也可用文件输入导入；导入走 `normalizeKingdomState` 清洗，旧版的 `turn / level / laborRolled / builtTurn / foundedTurn` 会被丢弃，单值 `hex` 自动转为 `hexes` 数组。v4 迁移会更新默认建筑显示名、移除学堂/大学/大市集/剧院，并补上学院、酒馆、墓地、酿酒厂、铁匠铺、博物馆。
+10. **文件存档**：`npm run serve` 启动 `server.mjs` 后，地图与王国优先读写项目根目录 `saves/kingdom-map-v1.json` 和 `saves/kingdom-manage-v1.json`；`POST /api/save` 原子写入前会在 `saves/backups/` 留最多 5 份备份。localStorage 继续作为离线兜底，两者内容一致。王国写入带 `savedAt`，启动时本地较新（`kingdom-manage-v1.saved-at` 或旧快照时间）不会被旧文件覆盖，并会把本地状态回写文件；建造、拆除、升级、结算、入库、新建定居点等关键操作立即落盘。页头显示最近保存时间，文件接口不可用时提示「仅保存在此浏览器」。
+11. **维护费**：每座建筑每次结算 5p，已并入 `kingdomStats` 的 `upkeep / netIncomeP`；经营盘统一用净产出结算，不做压力模式自动拆房。维护费不足时由玩家拆除建筑或补足国库，国库不为负。
+12. **民心与动荡**：`kingdomStats` 汇总建筑民心并加上 `moraleAdjust`（-5 到 +5），封顶 10；`unrest`（0 到 20）与民心抵消，净民心每点调整 1p 税收，税收最低为 0。两者存于王国存档，界面在经营盘可编辑，结算日志记录抵消与税收修正。
+13. 原始规则参考: D:\跑团\规则\勇敢鼠鼠\拥王者战役\杂项转换\王国经营简化.md
 
 ## 约束与坑
 

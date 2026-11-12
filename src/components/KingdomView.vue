@@ -1,28 +1,35 @@
 <script setup>
-import { computed, reactive, ref } from 'vue'
-import { state, resetKingdom, exportSaveFile, importSaveText } from '../kingdomStore.js'
+import { computed, onMounted, reactive, ref } from 'vue'
+import {
+  state,
+  resetKingdom,
+  exportSaveFile,
+  importSaveText,
+  saveStatus,
+  flushKingdomSave,
+  saveKingdomNow,
+  checkFileSave,
+} from '../kingdomStore.js'
 import { state as mapState } from '../mapStore.js'
 import {
   BUILDING_TIERS,
   EFFECT_KINDS,
-  GROWTH_RATES,
   SETTLEMENT_TYPES,
   UPKEEP_PER_BUILDING,
   allowedDefs,
-  ambitionStatus,
   buildBuilding,
   buildCost,
   canBuild,
   canFoundSettlement,
   clearBuildings,
   costText,
-  defaultOptions,
   countBuildingInstances,
   countEffectUsage,
   defaultBuildingDefs,
   defById,
   defLabel,
   demolishBuilding,
+  depositTreasury,
   effectSummary,
   foundSettlement,
   kingdomStats,
@@ -38,20 +45,42 @@ import {
   upgradeSettlement,
 } from '../kingdom/model.js'
 
-// 兼容热更新与旧存档：内存里的状态可能还没有 options
-if (!state.options) state.options = defaultOptions()
-
 const tab = ref('play')
 const message = ref('')
 const messageWarn = ref(false)
 const flashId = ref('')
 const picks = reactive({})
+const depositAmount = ref(null)
 const fileInput = ref(null)
 const pasting = ref(false)
 const pasteText = ref('')
 let flashTimer = null
 
 const stats = computed(() => kingdomStats(state))
+const savedAtText = computed(() => {
+  if (!saveStatus.savedAt) return ''
+  const d = new Date(saveStatus.savedAt)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+})
+// 文件存档优先；本地缓存只作离线兜底，被禁用时不显示成保存失败
+const saveHint = computed(() => {
+  if (saveStatus.fileOk === true) {
+    return savedAtText.value ? `已保存 ${savedAtText.value}` : '已保存到文件存档'
+  }
+  if (saveStatus.fileOk === false) {
+    return saveStatus.localOk === false
+      ? `保存失败：${saveStatus.error || '文件存档与本地缓存均不可用'}`
+      : '仅保存在此浏览器，文件存档未连接'
+  }
+  if (saveStatus.localOk === false) return '正在写入文件存档'
+  return savedAtText.value ? `已保存 ${savedAtText.value}` : '尚未保存'
+})
+const saveWarn = computed(() => saveStatus.fileOk === false)
+const canDeposit = computed(() => {
+  const n = Number(depositAmount.value)
+  return Number.isFinite(n) && Math.floor(n) !== 0
+})
 const laborMax = computed(() => stats.value.laborDice * 6)
 const pending = computed(() => pendingProduction(state))
 const hasPending = computed(() => pending.value.p !== 0 || pending.value.materials > 0)
@@ -84,14 +113,15 @@ const recommendations = computed(() => {
 })
 const newCost = computed(() => newSettlementCost(state))
 const foundCheck = computed(() => canFoundSettlement(state))
-const ambitions = computed(() => ambitionStatus(state))
-const ambitionDone = computed(() => ambitions.value.filter((a) => a.done).length)
-const growthList = computed(() => Object.values(GROWTH_RATES))
 const recentLog = computed(() => state.log.slice(-12).reverse())
+
+onMounted(() => {
+  if (saveStatus.fileOk === null) checkFileSave()
+})
 
 function upgradePreview(st) {
   if (!st.type.next) return null
-  const next = settlementType(st.type.next, state.options)
+  const next = settlementType(st.type.next)
   return {
     type: next,
     capacity: st.capacity + next.slots - st.type.slots,
@@ -123,6 +153,32 @@ function clampResource(key) {
   state[key] = clampInt(state[key], 0, 9999999)
 }
 
+function clampMorale() {
+  state.moraleAdjust = clampInt(state.moraleAdjust, -5, 5)
+}
+
+function clampUnrest() {
+  state.unrest = clampInt(state.unrest, 0, 20)
+}
+
+function deposit() {
+  const raw = Number(depositAmount.value)
+  if (!Number.isFinite(raw) || Math.floor(raw) === 0) {
+    say('先填写要入库的 p，正数入库、负数支出。', true)
+    return
+  }
+  const note = window.prompt('入库备注（会记入操作记录，可留空）', '')
+  if (note === null) return
+  const result = depositTreasury(state, raw, note)
+  if (!result.ok) {
+    say(result.reason, true)
+    return
+  }
+  depositAmount.value = null
+  say(`已入账 ${signed(result.amount)}p。`)
+  flushKingdomSave()
+}
+
 function clampDef(def) {
   def.slots = clampInt(def.slots, 1, 99)
   def.labor = clampInt(def.labor, 0, 999)
@@ -134,10 +190,19 @@ function clampDef(def) {
 // 只认地图页里已占据的格子；存档里若还留着已取消占据的编号，也保留为可选项并标出
 const claimedHexes = computed(() => Object.keys(mapState.hexClaimed || {}).sort())
 
-function hexOptions(current) {
-  const list = claimedHexes.value.slice()
-  for (const code of current || []) if (!list.includes(code)) list.push(code)
-  return list.sort()
+// 一个格只能属于一处定居点：他人已占的格仍列出，但界面禁用并标出归属
+function hexOwner(code, settlement) {
+  return state.settlements.find((other) => other.id !== settlement.id && other.hexes.includes(code)) || null
+}
+
+function hexOptions(settlement) {
+  const list = new Set(claimedHexes.value)
+  for (const code of settlement.hexes) list.add(code)
+  for (const other of state.settlements) {
+    if (other.id === settlement.id) continue
+    for (const code of other.hexes) list.add(code)
+  }
+  return [...list].sort()
 }
 
 function hexNote(code) {
@@ -201,7 +266,7 @@ function defScore(st, def) {
   }
   const taxDelta = Math.floor((st.population + addPop) / 2) - st.tax
   const netP = addP + taxDelta - UPKEEP_PER_BUILDING
-  const costP = buildCost(state, def).p
+  const costP = buildCost(def).p
   return {
     netP,
     payback: netP > 0 && costP > 0 ? Math.ceil(costP / netP) : 0,
@@ -223,7 +288,7 @@ function recText(settlement) {
 function defOptionLabel(settlement, def) {
   const block = structuralBlock(settlement, def)
   const rec = isRecommended(settlement, def.id) ? '推荐｜' : ''
-  return `${rec}${defLabel(def)}｜${costText(state, def)}${block ? `｜${block}` : ''}`
+  return `${rec}${defLabel(def)}｜${costText(def)}${block ? `｜${block}` : ''}`
 }
 
 function buildCheck(settlement) {
@@ -241,6 +306,7 @@ function settle() {
   if (result.p) parts.push(`${signed(result.p)}p`)
   if (result.materials) parts.push(`${signed(result.materials)}物资`)
   say(`已结算：${parts.join('、')}。`)
+  flushKingdomSave()
 }
 
 function newRound() {
@@ -249,6 +315,7 @@ function newRound() {
   }
   startNewRound(state)
   say('已开始新一轮，劳力已清零。')
+  flushKingdomSave()
 }
 
 function build(settlement) {
@@ -270,6 +337,8 @@ function build(settlement) {
   } else {
     say(`已建成${nameOf(id)}。`)
   }
+  delete picks[settlement.id]
+  flushKingdomSave()
 }
 
 function upgrade(settlement) {
@@ -278,9 +347,10 @@ function upgrade(settlement) {
     say(result.reason, true)
     return
   }
-  const type = settlementType(result.type, state.options)
+  const type = settlementType(result.type)
   say(`已升级为${type.label}：${type.slots}槽，基础人口${type.basePop}。`)
   flash(settlement.id)
+  flushKingdomSave()
 }
 
 function remove(settlement, building) {
@@ -293,6 +363,7 @@ function remove(settlement, building) {
     return
   }
   say(`已拆除${label}，槽位空出。`)
+  flushKingdomSave()
 }
 
 function found() {
@@ -301,7 +372,8 @@ function found() {
     say(result.reason, true)
     return
   }
-  say(`已新建${result.settlement.name}（${settlementType('village', state.options).slots}槽村庄）。`)
+  say(`已新建${result.settlement.name}（${settlementType('village').slots}槽村庄）。`)
+  flushKingdomSave()
 }
 
 function rebuild(settlement) {
@@ -313,11 +385,13 @@ function rebuild(settlement) {
   }
   say(`已清空 ${result.count} 座建筑，槽位全部空出。`)
   flash(settlement.id)
+  flushKingdomSave()
 }
 
 function addDef() {
   state.buildingDefs.unshift(newBuildingDef())
   say('已新增建筑，展开建筑表后编辑。')
+  flushKingdomSave()
 }
 
 function removeDef(def) {
@@ -329,6 +403,7 @@ function removeDef(def) {
   const i = state.buildingDefs.findIndex((d) => d.id === def.id)
   if (i >= 0) state.buildingDefs.splice(i, 1)
   say(`已删除建筑定义：${def.name}。`)
+  flushKingdomSave()
 }
 
 function addEffect(def) {
@@ -338,10 +413,12 @@ function addEffect(def) {
     return
   }
   def.effects.push({ type: first.id, value: 0 })
+  flushKingdomSave()
 }
 
 function removeEffect(def, index) {
   def.effects.splice(index, 1)
+  flushKingdomSave()
 }
 
 function effectKind(effect) {
@@ -362,6 +439,7 @@ function usedDefText(defId) {
 function addEffectDef() {
   state.effectDefs.push(newEffectDef())
   say('已新增效果类型，可在建筑效果里选用。')
+  flushKingdomSave()
 }
 
 function removeEffectDef(fx) {
@@ -373,6 +451,7 @@ function removeEffectDef(fx) {
   const i = state.effectDefs.findIndex((e) => e.id === fx.id)
   if (i >= 0) state.effectDefs.splice(i, 1)
   say(`已删除效果类型：${fx.label}。`)
+  flushKingdomSave()
 }
 
 function effectUsageText(fxId) {
@@ -394,6 +473,7 @@ function resetBuildings() {
     settlement.buildings = settlement.buildings.filter((b) => known.has(b.defId))
   }
   say('已恢复默认建筑表。')
+  flushKingdomSave()
 }
 
 function resetGame() {
@@ -401,11 +481,23 @@ function resetGame() {
   resetKingdom()
   for (const key of Object.keys(picks)) delete picks[key]
   say('已重置王国存档。')
+  flushKingdomSave()
 }
 
 function exportSave() {
   exportSaveFile()
   say('已导出王国存档。')
+}
+
+async function saveNowClick() {
+  const ok = await saveKingdomNow()
+  if (ok) {
+    say('已保存。')
+  } else if (saveStatus.localOk) {
+    say('文件存档未连接，已保存在此浏览器。', true)
+  } else {
+    say('保存失败：请检查文件存档或浏览器存储。', true)
+  }
 }
 
 async function onFile(event) {
@@ -439,7 +531,7 @@ function importPaste() {
 </script>
 
 <template>
-  <section class="kingdom">
+  <section class="kingdom" @change="flushKingdomSave">
     <header class="head">
       <div>
         <h1>王国经营</h1>
@@ -447,11 +539,12 @@ function importPaste() {
       </div>
       <p class="status" :class="{ warn: messageWarn }" role="status" aria-live="polite">{{ message }}</p>
     </header>
+    <p class="saveState" :class="{ warn: saveWarn }" :title="saveStatus.error">{{ saveHint }}</p>
 
     <div class="ledger">
       <div class="ledgerCell">
         <span class="ledgerLabel">本次净产出</span>
-        <div class="ledgerValue" :class="{ minus: stats.netIncomeP < 0 }" :title="`税收 ${stats.tax}p ＋ 建筑 ${stats.buildingP}p － 维护 ${stats.upkeep}p`">
+        <div class="ledgerValue" :class="{ minus: stats.netIncomeP < 0 }" :title="`税收 ${stats.tax}p（含民心 ${signed(stats.moraleTax)}p）＋ 建筑 ${stats.buildingP}p － 维护 ${stats.upkeep}p`">
           {{ netText }}
           <button class="mini settleBtn" :disabled="!settleStatus.ok" :title="settleStatus.ok ? '把净产出入库，维护费从国库扣除' : settleStatus.reason" @click="settle">结算</button>
         </div>
@@ -468,14 +561,27 @@ function importPaste() {
           <span class="unit">点</span>
         </div>
       </div>
-      <label class="ledgerCell">
+      <div class="ledgerCell">
         <span class="ledgerLabel">国库</span>
-        <div class="ledgerValue">
-          <input type="number" min="0" v-model.number="state.treasury" aria-label="国库 p" @change="clampResource('treasury')" />
-          <span class="unit">p</span>
+        <div class="treasuryRow">
+          <div class="ledgerValue">
+            <input type="number" min="0" v-model.number="state.treasury" aria-label="国库 p" @change="clampResource('treasury')" />
+            <span class="unit">p</span>
+          </div>
+          <div class="depositRow">
+            <input
+              type="number"
+              step="1"
+              v-model.number="depositAmount"
+              placeholder="+/-p"
+              aria-label="入库 p"
+              @keyup.enter="deposit"
+            />
+            <button class="act depositBtn" :disabled="!canDeposit" title="正数入库、负数支出，并记录备注" @click="deposit">入库</button>
+          </div>
         </div>
-        <p class="ledgerHint">当前结余</p>
-      </label>
+        <p class="ledgerHint">当前结余 · 入库支持正负并记录备注</p>
+      </div>
       <label class="ledgerCell">
         <span class="ledgerLabel">物资</span>
         <div class="ledgerValue">
@@ -486,19 +592,21 @@ function importPaste() {
       </label>
     </div>
 
-    <div class="ambitions">
-      <span class="ambLabel">志向 {{ ambitionDone }}/{{ ambitions.length }}</span>
-      <label v-for="a in ambitions" :key="a.id" class="amb" :class="{ done: a.done }">
-        <input type="checkbox" :checked="a.done" disabled />
-        <span>{{ a.label }}</span>
+    <div class="morale">
+      <span class="moraleLabel">民心 <b>{{ stats.morale }}</b><span class="muted">（建筑 {{ signed(stats.buildingMorale) }}，修正 {{ signed(state.moraleAdjust) }}）</span></span>
+      <label class="moraleField">事件修正
+        <input type="number" min="-5" max="5" v-model.number="state.moraleAdjust" aria-label="民心事件修正" @change="clampMorale" />
       </label>
+      <label class="moraleField">动荡
+        <input type="number" min="0" max="20" v-model.number="state.unrest" aria-label="动荡" @change="clampUnrest" />
+      </label>
+      <span class="moraleNet">净民心 <b>{{ signed(stats.netMorale) }}</b> · 税收 {{ signed(stats.moraleTax) }}p</span>
     </div>
 
     <nav class="tabs" aria-label="王国经营视图">
       <button class="tab" :class="{ on: tab === 'play' }" :aria-current="tab === 'play' ? 'page' : undefined" @click="tab = 'play'">经营盘</button>
       <button class="tab" :class="{ on: tab === 'buildings' }" :aria-current="tab === 'buildings' ? 'page' : undefined" @click="tab = 'buildings'">建筑表</button>
       <button class="tab" :class="{ on: tab === 'effects' }" :aria-current="tab === 'effects' ? 'page' : undefined" @click="tab = 'effects'">效果类型</button>
-      <button class="tab" :class="{ on: tab === 'tune' }" :aria-current="tab === 'tune' ? 'page' : undefined" @click="tab = 'tune'">调节</button>
     </nav>
 
     <div v-if="tab === 'play'" class="play">
@@ -524,11 +632,23 @@ function importPaste() {
               <span class="hexEditLink">选择</span>
             </summary>
             <div class="hexPicker">
-              <label v-for="code in hexOptions(s.hexes)" :key="code" class="check hexCheck" :title="hexNote(code)">
-                <input type="checkbox" :value="code" v-model="s.hexes" />
+              <label
+                v-for="code in hexOptions(s)"
+                :key="code"
+                class="check hexCheck"
+                :class="{ taken: hexOwner(code, s) && !s.hexes.includes(code), conflict: hexOwner(code, s) && s.hexes.includes(code) }"
+                :title="hexNote(code)"
+              >
+                <input
+                  type="checkbox"
+                  :value="code"
+                  v-model="s.hexes"
+                  :disabled="!!hexOwner(code, s) && !s.hexes.includes(code)"
+                />
                 <span>{{ hexLabel(code) }}</span>
+                <span v-if="hexOwner(code, s)" class="hexOwnerTag">已被{{ hexOwner(code, s).name || '其他定居点' }}占用</span>
               </label>
-              <span v-if="!hexOptions(s.hexes).length" class="muted">地图页还没有已占据格</span>
+              <span v-if="!hexOptions(s).length" class="muted">地图页还没有已占据格</span>
             </div>
           </details>
           <div class="metrics">
@@ -569,7 +689,7 @@ function importPaste() {
               <button class="act" :disabled="!buildCheck(s).ok" @click="build(s)">建造</button>
             </div>
             <p v-if="pickOf(s)" class="hint" :class="{ warn: !buildCheck(s).ok }">
-              {{ buildCheck(s).ok ? `${effectSummary(state, selectedDef(s))}；${costText(state, selectedDef(s))}` : buildCheck(s).reason }}<span v-if="isRecommended(s, pickOf(s))" class="recNote">；{{ recText(s) }}</span>
+              {{ buildCheck(s).ok ? `${effectSummary(state, selectedDef(s))}；${costText(selectedDef(s))}` : buildCheck(s).reason }}<span v-if="isRecommended(s, pickOf(s))" class="recNote">；{{ recText(s) }}</span>
             </p>
           </template>
         </article>
@@ -596,12 +716,15 @@ function importPaste() {
       <details class="more saveBlock">
         <summary>存档</summary>
         <div class="saveRow">
+          <button class="mini" @click="saveNowClick">立即保存</button>
           <button class="mini" @click="exportSave">导出存档</button>
           <button class="mini" @click="togglePaste">{{ pasting ? '收起粘贴' : '粘贴导入' }}</button>
           <span class="muted">文件：</span>
           <input ref="fileInput" class="fileInput" type="file" accept=".json,application/json" aria-label="导入王国存档文件" @change="onFile" />
           <button class="mini danger resetBtn" @click="resetGame">重置王国存档</button>
         </div>
+        <p class="muted saveNote">文件存档优先；浏览器本地缓存仅作离线兜底。</p>
+        <p v-if="saveStatus.error && saveStatus.fileOk !== true" class="hint warn">{{ saveStatus.error }}</p>
         <div v-if="pasting" class="pasteBox">
           <textarea v-model="pasteText" class="pasteArea" rows="6" placeholder="粘贴王国存档 JSON"></textarea>
           <button class="act" :disabled="!pasteText.trim()" @click="importPaste">导入粘贴内容</button>
@@ -628,7 +751,7 @@ function importPaste() {
             <summary>
               <span class="sumName">{{ d.name || '未命名建筑' }}</span>
               <span v-if="d.alias" class="sumAlias">（{{ d.alias }}）</span>
-              <span class="sumMeta">{{ d.slots }}槽 · {{ costText(state, d) }}</span>
+              <span class="sumMeta">{{ d.slots }}槽 · {{ costText(d) }}</span>
               <span class="sumFx">{{ effectSummary(state, d) }}</span>
               <span v-if="d.requiresWater || d.limitPerSettlement" class="sumTags">
                 <span v-if="d.requiresWater" class="tag">临水</span>
@@ -711,32 +834,6 @@ function importPaste() {
       </div>
     </div>
 
-    <div v-if="tab === 'tune'" class="tableTab">
-      <header class="tabHead">
-        <div>
-          <h2>调节</h2>
-          <p class="muted">成长速度、槽位与资源口径即时生效；维护费固定为每座建筑 5p，已在经营盘统一结算。</p>
-        </div>
-      </header>
-      <fieldset class="knob">
-        <legend>成长速度</legend>
-        <label v-for="g in growthList" :key="g.id" class="radio">
-          <input type="radio" :value="g.id" v-model="state.options.growth" />
-          <span>{{ g.label }}</span>
-          <span class="meta">劳力骰 ÷{{ g.divisor }} · 建造成本 ×{{ g.costMultiplier }}</span>
-        </label>
-      </fieldset>
-      <label class="knob rowKnob">
-        <input type="checkbox" v-model="state.options.compactSlots" />
-        <span>紧凑槽位</span>
-        <span class="meta">村庄 3 · 城镇 6 · 城市 9</span>
-      </label>
-      <label class="knob rowKnob">
-        <input type="checkbox" v-model="state.options.singleResource" />
-        <span>单资源模式</span>
-        <span class="meta">建筑只花 p</span>
-      </label>
-    </div>
   </section>
 </template>
 
@@ -751,6 +848,8 @@ function importPaste() {
   color: var(--ochre); font-size: 13px; line-height: 1.6; text-align: right;
 }
 .status.warn { color: var(--warn); }
+.saveState { margin: 6px 0 0; color: var(--ink-3); font-size: 12px; text-align: right; }
+.saveState.warn { color: var(--warn); }
 
 .ledger {
   display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -772,27 +871,28 @@ function importPaste() {
 .ledgerValue .dice { color: var(--ink-2); font-size: 12px; font-weight: 400; white-space: nowrap; }
 .ledgerValue .unit { color: var(--ink-2); font-size: 12px; font-weight: 400; }
 .ledgerHint { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.5; }
+.treasuryRow { display: flex; align-items: center; gap: 6px; }
+.treasuryRow .ledgerValue { flex: 1 1 auto; min-width: 0; }
+.treasuryRow .ledgerValue input { width: 100%; min-width: 0; }
+.depositRow { display: flex; flex: 0 0 auto; align-items: center; gap: 4px; }
+.depositRow input { width: 56px; padding: 3px 5px; font-size: 12px; }
+.depositBtn { padding: 3px 6px; }
 
-.ambitions { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 6px; margin-top: 14px; }
-.ambLabel { margin-right: 2px; color: var(--ink-3); font-size: 12px; letter-spacing: 0.08em; font-variant-numeric: tabular-nums; }
-.amb {
-  display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px 2px 5px;
-  border: 1px solid var(--rule-soft); border-radius: 2px;
-  color: var(--ink-3); font-size: 12px; cursor: default;
+/* 去掉数值输入框内部的上下箭头 */
+.kingdom input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
+.kingdom input[type="number"]::-webkit-outer-spin-button,
+.kingdom input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
-.amb input { width: 12px; height: 12px; margin: 0; }
-.amb.done { border-color: var(--ochre-soft); background: var(--wash-ochre); color: var(--ochre); }
 
-.knob {
-  margin: 16px 0 0; padding: 12px 14px;
-  border: 1px solid var(--rule-soft); border-radius: 3px;
-}
-.knob legend { padding: 0 6px; color: var(--ink-2); font-size: 12px; letter-spacing: 0.08em; }
-.radio { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; margin-top: 6px; color: var(--ink-2); font-size: 12px; }
-.radio input { margin: 0; }
-.radio .meta, .rowKnob .meta { color: var(--ink-3); }
-.rowKnob { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; color: var(--ink-2); font-size: 12px; }
-.rowKnob input { margin: 0; }
+.morale { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin-top: 14px; color: var(--ink-2); font-size: 12px; }
+.moraleLabel b { color: var(--ink); font-weight: 600; }
+.moraleLabel .muted { margin-left: 2px; color: var(--ink-3); }
+.moraleField { display: inline-flex; align-items: baseline; gap: 6px; }
+.moraleField input { width: 56px; padding: 3px 6px; }
+.moraleNet { color: var(--ink-2); }
+.moraleNet b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
 
 .tabs { display: flex; gap: 4px; margin: 18px 0 16px; border-bottom: 1px solid var(--rule); }
 .tab {
@@ -837,6 +937,10 @@ function importPaste() {
 .hexEditLink { color: var(--ochre); font-size: 12px; letter-spacing: 0.06em; }
 .hexPicker { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; padding: 8px 0 0 14px; border-top: 1px solid var(--rule-soft); }
 .hexCheck { gap: 5px; margin: 0; }
+.hexCheck.taken { color: var(--ink-3); cursor: not-allowed; }
+.hexCheck.taken input { cursor: not-allowed; }
+.hexOwnerTag { color: var(--ink-3); font-size: 11px; }
+.hexCheck.conflict .hexOwnerTag { color: var(--warn); }
 .tag.stale { border-color: var(--warn); background: transparent; color: var(--warn); }
 .metrics { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 10px; color: var(--ink-2); font-size: 12px; }
 .metrics b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }

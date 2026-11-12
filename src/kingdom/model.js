@@ -1,7 +1,7 @@
 // 王国经营的数据模型与纯逻辑：不依赖 Vue，便于单元测试。
 // 建筑与效果全部走数据表，界面改表即时生效；存档只保存这张表和当前局面。
 
-export const VERSION = 3
+export const VERSION = 4
 export const UPKEEP_PER_BUILDING = 5
 
 export const BUILDING_TIERS = [
@@ -16,24 +16,13 @@ export const SETTLEMENT_TYPES = {
   city: { id: 'city', label: '城市', slots: 12, basePop: 45, tiers: ['village', 'town', 'city'], next: null },
 }
 
-export const COMPACT_SLOTS = { village: 3, town: 6, city: 9 }
-
-export const GROWTH_RATES = {
-  slow: { id: 'slow', label: '慢速', divisor: 8, costMultiplier: 1.5 },
-  normal: { id: 'normal', label: '标准', divisor: 6, costMultiplier: 1 },
-  fast: { id: 'fast', label: '快速', divisor: 4, costMultiplier: 0.75 },
-}
-
-export function defaultOptions() {
-  return { growth: 'normal', compactSlots: false, singleResource: false }
-}
-
 export const EFFECT_KINDS = [
   { id: 'population', label: '人口', hint: '加定居点人口，同时影响税收与劳力骰。' },
   { id: 'labor', label: '劳力骰', hint: '给全王国加劳力骰，每颗 d6。' },
   { id: 'incomeP', label: 'p收入', hint: '给国库加 p。' },
   { id: 'incomeMaterial', label: '物资收入', hint: '给物资池加物资。' },
   { id: 'slots', label: '槽位', hint: '加减定居点的槽位上限。' },
+  { id: 'morale', label: '民心', hint: '计入王国民心，每点抵消1点动荡；剩余每点调整1p税收。' },
   { id: 'note', label: '说明', hint: '只展示，不参与数值计算。' },
 ]
 
@@ -52,6 +41,23 @@ const EFFECT_IDS = {
 
 const V3_EFFECT_IDS = new Set([EFFECT_IDS.morale, EFFECT_IDS.defense, EFFECT_IDS.research, EFFECT_IDS.diplomacy])
 const V3_BUILDING_IDS = new Set(['tavern', 'shrine', 'wall', 'library', 'trade_post'])
+const V4_REMOVED_BUILDING_IDS = new Set(['school', 'university', 'grand_market', 'theater'])
+const V4_NEW_BUILDING_IDS = new Set(['academy', 'alehouse', 'brewery', 'museum', 'blacksmith', 'graveyard'])
+const V4_BUILDING_NAMES = {
+  house: '民房',
+  farm: '产地',
+  market: '市集',
+  road: '道路',
+  tavern: '旅店',
+  shrine: '神殿',
+  workshop: '工坊',
+  dock: '码头',
+  town_hall: '议事厅',
+  wall: '城墙',
+  library: '图书馆',
+  trade_post: '贸易站',
+  palace: '宫殿',
+}
 
 export function defaultEffectDefs() {
   return [
@@ -61,7 +67,7 @@ export function defaultEffectDefs() {
     { id: EFFECT_IDS.material, label: '物资', unit: '物资', kind: 'incomeMaterial' },
     { id: EFFECT_IDS.slots, label: '槽位', unit: '槽', kind: 'slots' },
     { id: EFFECT_IDS.note, label: '说明', unit: '', kind: 'note' },
-    { id: EFFECT_IDS.morale, label: '民心', unit: '', kind: 'note' },
+    { id: EFFECT_IDS.morale, label: '民心', unit: '', kind: 'morale' },
     { id: EFFECT_IDS.defense, label: '防御', unit: '', kind: 'note' },
     { id: EFFECT_IDS.research, label: '研究', unit: '', kind: 'note' },
     { id: EFFECT_IDS.diplomacy, label: '外交', unit: '', kind: 'note' },
@@ -71,7 +77,7 @@ export function defaultEffectDefs() {
 export function defaultBuildingDefs() {
   return [
     {
-      id: 'house', name: '民居', tier: 'village', slots: 1, labor: 3, p: 20, materials: 0,
+      id: 'house', name: '民房', tier: 'village', slots: 1, labor: 3, p: 20, materials: 0,
       limitPerSettlement: 0, requiresWater: false, description: '',
       effects: [{ type: EFFECT_IDS.population, value: 5 }],
     },
@@ -91,8 +97,8 @@ export function defaultBuildingDefs() {
       effects: [{ type: EFFECT_IDS.labor, value: 1 }],
     },
     {
-      id: 'tavern', name: '客栈', tier: 'village', slots: 1, labor: 3, p: 25, materials: 0,
-      limitPerSettlement: 0, requiresWater: false, description: '提供食宿与消息；民心按桌面裁定',
+      id: 'tavern', name: '旅店', tier: 'village', slots: 1, labor: 3, p: 25, materials: 0,
+      limitPerSettlement: 0, requiresWater: false, description: '提供食宿与消息',
       effects: [
         { type: EFFECT_IDS.p, value: 5 },
         { type: EFFECT_IDS.morale, value: 1 },
@@ -100,21 +106,29 @@ export function defaultBuildingDefs() {
     },
     {
       id: 'shrine', name: '神殿', tier: 'village', slots: 1, labor: 4, p: 30, materials: 0,
-      limitPerSettlement: 0, requiresWater: false, description: '民心按桌面裁定',
+      limitPerSettlement: 0, requiresWater: false, description: '安抚社区',
       effects: [
         { type: EFFECT_IDS.population, value: 5 },
         { type: EFFECT_IDS.morale, value: 1 },
       ],
     },
     {
-      id: 'workshop', name: '作坊', tier: 'town', slots: 1, labor: 5, p: 20, materials: 2,
-      limitPerSettlement: 0, requiresWater: false, description: '',
-      effects: [{ type: EFFECT_IDS.p, value: 15 }],
+      id: 'alehouse', name: '酒馆', tier: 'village', slots: 1, labor: 3, p: 20, materials: 0,
+      limitPerSettlement: 0, requiresWater: false, description: '饮酒与社交',
+      effects: [
+        { type: EFFECT_IDS.p, value: 3 },
+        { type: EFFECT_IDS.morale, value: 2 },
+      ],
     },
     {
-      id: 'school', name: '学堂', tier: 'town', slots: 1, labor: 6, p: 40, materials: 2,
+      id: 'graveyard', name: '墓地', tier: 'village', slots: 1, labor: 3, p: 15, materials: 0,
+      limitPerSettlement: 1, requiresWater: false, description: '安抚亡者与社区；每定居点限1座',
+      effects: [{ type: EFFECT_IDS.morale, value: 1 }],
+    },
+    {
+      id: 'workshop', name: '工坊', tier: 'town', slots: 1, labor: 5, p: 20, materials: 2,
       limitPerSettlement: 0, requiresWater: false, description: '',
-      effects: [{ type: EFFECT_IDS.labor, value: 1 }],
+      effects: [{ type: EFFECT_IDS.p, value: 15 }],
     },
     {
       id: 'dock', name: '码头', tier: 'town', slots: 1, labor: 5, p: 30, materials: 2,
@@ -122,7 +136,7 @@ export function defaultBuildingDefs() {
       effects: [{ type: EFFECT_IDS.p, value: 20 }],
     },
     {
-      id: 'town_hall', name: '镇公所', tier: 'town', slots: 2, labor: 8, p: 80, materials: 3,
+      id: 'town_hall', name: '议事厅', tier: 'town', slots: 2, labor: 8, p: 80, materials: 3,
       limitPerSettlement: 0, requiresWater: false, description: '',
       effects: [
         { type: EFFECT_IDS.population, value: 10 },
@@ -148,22 +162,26 @@ export function defaultBuildingDefs() {
       ],
     },
     {
-      id: 'grand_market', name: '大市集', tier: 'city', slots: 2, labor: 8, p: 100, materials: 4,
-      limitPerSettlement: 0, requiresWater: false, description: '',
-      effects: [{ type: EFFECT_IDS.p, value: 30 }],
-    },
-    {
-      id: 'university', name: '大学', tier: 'city', slots: 2, labor: 10, p: 120, materials: 5,
-      limitPerSettlement: 1, requiresWater: false, description: '每定居点限1座',
-      effects: [{ type: EFFECT_IDS.labor, value: 2 }],
-    },
-    {
-      id: 'theater', name: '剧院', tier: 'city', slots: 2, labor: 8, p: 80, materials: 4,
-      limitPerSettlement: 1, requiresWater: false, description: '每定居点限1座',
+      id: 'brewery', name: '酿酒厂', tier: 'town', slots: 1, labor: 5, p: 30, materials: 3,
+      limitPerSettlement: 0, requiresWater: false, description: '酿造与售卖酒类',
       effects: [
-        { type: EFFECT_IDS.population, value: 10 },
-        { type: EFFECT_IDS.p, value: 15 },
+        { type: EFFECT_IDS.p, value: 5 },
+        { type: EFFECT_IDS.material, value: 3 },
+        { type: EFFECT_IDS.morale, value: 1 },
       ],
+    },
+    {
+      id: 'blacksmith', name: '铁匠铺', tier: 'town', slots: 1, labor: 5, p: 25, materials: 2,
+      limitPerSettlement: 1, requiresWater: false, description: '打造工具与兵器；每定居点限1座',
+      effects: [
+        { type: EFFECT_IDS.p, value: 10 },
+        { type: EFFECT_IDS.defense, value: 1 },
+      ],
+    },
+    {
+      id: 'academy', name: '学院', tier: 'city', slots: 2, labor: 10, p: 120, materials: 5,
+      limitPerSettlement: 1, requiresWater: false, description: '研究线索按桌面裁定；每定居点限1座',
+      effects: [{ type: EFFECT_IDS.labor, value: 2 }],
     },
     {
       id: 'palace', name: '宫殿', tier: 'city', slots: 3, labor: 12, p: 200, materials: 8,
@@ -172,6 +190,15 @@ export function defaultBuildingDefs() {
         { type: EFFECT_IDS.population, value: 20 },
         { type: EFFECT_IDS.p, value: 20 },
         { type: EFFECT_IDS.labor, value: 2 },
+      ],
+    },
+    {
+      id: 'museum', name: '博物馆', tier: 'city', slots: 2, labor: 8, p: 100, materials: 4,
+      limitPerSettlement: 1, requiresWater: false, description: '展品与研究线索按桌面裁定；每定居点限1座',
+      effects: [
+        { type: EFFECT_IDS.p, value: 10 },
+        { type: EFFECT_IDS.morale, value: 2 },
+        { type: EFFECT_IDS.research, value: 1 },
       ],
     },
   ].map((def) => ({ alias: '', ...def }))
@@ -196,11 +223,12 @@ export function defaultKingdomState() {
     materials: 4,
     laborPoints: 0,
     settled: false,
-    options: defaultOptions(),
+    moraleAdjust: 0,
+    unrest: 0,
     settlements: [capitalSettlement()],
     buildingDefs: defaultBuildingDefs(),
     effectDefs: defaultEffectDefs(),
-    log: [{ id: 'log_start', text: '开局：首都一处村庄，国库60p，物资4。劳力骰数量仅作提示，外部掷好后填入点数。' }],
+    log: [{ id: 'log_start', text: '开局：首都一处村庄，国库60p，物资4，民心0、动荡0。劳力骰数量仅作提示，外部掷好后填入点数。' }],
   }
 }
 
@@ -213,6 +241,7 @@ export function makeId(prefix = 'id') {
 const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v)
 const numOf = (v, fallback) => (Number.isFinite(Number(v)) ? Number(v) : fallback)
 const intOf = (v, fallback, min = 0) => Math.max(min, Math.floor(numOf(v, fallback)))
+const signedIntOf = (v, fallback, min, max) => Math.min(max, Math.max(min, Math.floor(numOf(v, fallback))))
 const textOf = (v, fallback = '') => (typeof v === 'string' ? v : fallback)
 
 function uniqueId(list, id, prefix) {
@@ -220,16 +249,6 @@ function uniqueId(list, id, prefix) {
   let next = id && !seen.has(id) ? id : makeId(prefix)
   while (seen.has(next)) next = makeId(prefix)
   return next
-}
-
-export function normalizeOptions(raw) {
-  const base = defaultOptions()
-  if (!isObj(raw)) return base
-  return {
-    growth: GROWTH_RATES[raw.growth] ? raw.growth : base.growth,
-    compactSlots: raw.compactSlots === true,
-    singleResource: raw.singleResource === true,
-  }
 }
 
 export function normalizeEffectDefs(raw) {
@@ -336,13 +355,36 @@ function normalizeLog(raw) {
   return out.slice(-200)
 }
 
+// v4：建筑改名、移除旧地标、补战役建筑；民心从说明型改为可结算数值
+function migrateV4(buildingDefs, effectDefs) {
+  const byId = new Map(buildingDefs.map((d) => [d.id, d]))
+  const defaults = new Map(defaultBuildingDefs().map((d) => [d.id, d]))
+  for (const id of V4_REMOVED_BUILDING_IDS) byId.delete(id)
+  for (const [id, name] of Object.entries(V4_BUILDING_NAMES)) {
+    const def = byId.get(id)
+    if (!def) continue
+    def.name = name
+    def.alias = ''
+    const next = defaults.get(id)
+    if (next) def.description = next.description
+  }
+  for (const def of defaults.values()) {
+    if (V4_NEW_BUILDING_IDS.has(def.id) && !byId.has(def.id)) byId.set(def.id, { ...def })
+  }
+  const morale = effectDefs.find((e) => e.id === EFFECT_IDS.morale)
+  if (morale) morale.kind = 'morale'
+  else effectDefs.push({ id: EFFECT_IDS.morale, label: '民心', unit: '', kind: 'morale' })
+  return [...byId.values()]
+}
+
 export function normalizeKingdomState(raw) {
   if (!isObj(raw)) return defaultKingdomState()
   const fallback = defaultKingdomState()
+  const version = intOf(raw.version, 0, 0)
   const effectDefs = normalizeEffectDefs(raw.effectDefs)
-  const buildingDefs = normalizeBuildingDefs(raw.buildingDefs)
+  let buildingDefs = normalizeBuildingDefs(raw.buildingDefs)
   // v2 存档一次性补齐战役补充建筑与说明型效果；v3 后尊重玩家的删除
-  if (intOf(raw.version, 0, 0) < 3) {
+  if (version < 3) {
     for (const def of defaultEffectDefs()) {
       if (V3_EFFECT_IDS.has(def.id) && !effectDefs.some((x) => x.id === def.id)) effectDefs.push(def)
     }
@@ -350,13 +392,15 @@ export function normalizeKingdomState(raw) {
       if (V3_BUILDING_IDS.has(def.id) && !buildingDefs.some((x) => x.id === def.id)) buildingDefs.push(def)
     }
   }
+  if (version < 4) buildingDefs = migrateV4(buildingDefs, effectDefs)
   return {
     version: VERSION,
     treasury: intOf(raw.treasury, fallback.treasury, 0),
     materials: intOf(raw.materials, fallback.materials, 0),
     laborPoints: intOf(raw.laborPoints, 0, 0),
     settled: raw.settled === true,
-    options: normalizeOptions(raw.options),
+    moraleAdjust: signedIntOf(raw.moraleAdjust, 0, -5, 5),
+    unrest: signedIntOf(raw.unrest, 0, 0, 20),
     settlements: normalizeSettlements(raw.settlements, buildingDefs),
     buildingDefs,
     effectDefs,
@@ -364,10 +408,8 @@ export function normalizeKingdomState(raw) {
   }
 }
 
-export function settlementType(type, options) {
-  const base = SETTLEMENT_TYPES[type] || SETTLEMENT_TYPES.village
-  if (!options || !options.compactSlots) return base
-  return { ...base, slots: COMPACT_SLOTS[base.id] || base.slots }
+export function settlementType(type) {
+  return SETTLEMENT_TYPES[type] || SETTLEMENT_TYPES.village
 }
 
 // 定居点显示名：别名并列，和建筑别名保持一致
@@ -403,12 +445,13 @@ export function defLabel(def) {
 }
 
 export function settlementStats(state, settlement) {
-  const type = settlementType(settlement.type, state.options)
+  const type = settlementType(settlement.type)
   let popEffect = 0
   let laborBonus = 0
   let buildingP = 0
   let buildingMaterials = 0
   let slotEffect = 0
+  let moraleBonus = 0
   let used = 0
 
   for (const building of settlement.buildings) {
@@ -424,6 +467,7 @@ export function settlementStats(state, settlement) {
       else if (kind === 'incomeP') buildingP += value
       else if (kind === 'incomeMaterial') buildingMaterials += value
       else if (kind === 'slots') slotEffect += value
+      else if (kind === 'morale') moraleBonus += value
     }
   }
 
@@ -442,6 +486,7 @@ export function settlementStats(state, settlement) {
     netIncomeP: tax + buildingP - upkeep,
     materials: buildingMaterials,
     laborBonus,
+    moraleBonus,
     capacity,
     used,
     free,
@@ -453,13 +498,18 @@ export function settlementStats(state, settlement) {
 export function kingdomStats(state) {
   const rows = state.settlements.map((s) => settlementStats(state, s))
   const totalPopulation = rows.reduce((sum, r) => sum + r.population, 0)
-  const growth = GROWTH_RATES[state.options?.growth] || GROWTH_RATES.normal
-  const baseLaborDice = Math.min(12, Math.max(3, Math.floor(totalPopulation / growth.divisor)))
+  const baseLaborDice = Math.min(12, Math.max(3, Math.floor(totalPopulation / 6)))
   const laborBonus = rows.reduce((sum, r) => sum + r.laborBonus, 0)
   const laborDice = Math.max(0, baseLaborDice + laborBonus)
-  const tax = rows.reduce((sum, r) => sum + r.tax, 0)
+  const baseTax = rows.reduce((sum, r) => sum + r.tax, 0)
+  const buildingMorale = rows.reduce((sum, r) => sum + r.moraleBonus, 0)
+  const morale = Math.min(10, Math.max(0, buildingMorale + numOf(state.moraleAdjust, 0)))
+  const unrest = Math.min(20, Math.max(0, numOf(state.unrest, 0)))
+  const netMorale = morale - unrest
+  const tax = Math.max(0, baseTax + netMorale)
+  const moraleTax = tax - baseTax
   const buildingP = rows.reduce((sum, r) => sum + r.buildingP, 0)
-  const incomeP = rows.reduce((sum, r) => sum + r.incomeP, 0)
+  const incomeP = tax + buildingP
   const upkeep = rows.reduce((sum, r) => sum + r.upkeep, 0)
   return {
     totalPopulation,
@@ -467,6 +517,12 @@ export function kingdomStats(state) {
     laborBonus,
     laborDice,
     tax,
+    baseTax,
+    buildingMorale,
+    morale,
+    unrest,
+    netMorale,
+    moraleTax,
     buildingP,
     incomeP,
     upkeep,
@@ -511,7 +567,14 @@ export function settleProduction(state) {
   state.treasury = numOf(state.treasury, 0) + pending.p
   state.materials = numOf(state.materials, 0) + pending.materials
   state.settled = true
-  pushLog(state, `结算：${signed(pending.p)}p、${signed(pending.materials)}物资。`)
+  const stats = kingdomStats(state)
+  const detail = state.settlements
+    .map((s) => `${settlementLabel(s)} ${signed(settlementStats(state, s).netIncomeP)}p`)
+    .join('、')
+  pushLog(
+    state,
+    `结算：${detail}；合计${signed(pending.p)}p、${signed(pending.materials)}物资（税收${stats.tax}p、建筑${stats.buildingP}p、维护${stats.upkeep}p；民心${stats.morale}－动荡${stats.unrest}＝${signed(stats.netMorale)}，税收${signed(stats.moraleTax)}p）。`,
+  )
   return { ok: true, ...pending }
 }
 
@@ -522,20 +585,29 @@ export function startNewRound(state) {
   return { ok: true }
 }
 
+// 桌面补款、冒险所得或临时支出直接调整国库；正数入库，负数支出
+export function depositTreasury(state, amount, note = '') {
+  const value = Math.floor(numOf(amount, 0))
+  if (!value) return { ok: false, reason: '入库金额不能为0' }
+  const next = numOf(state.treasury, 0) + value
+  if (next < 0) return { ok: false, reason: '国库余额不足，无法扣除' }
+  state.treasury = next
+  const memo = textOf(note, '').trim().slice(0, 120)
+  pushLog(state, `入库：${signed(value)}p，国库现有 ${next}p${memo ? `；备注：${memo}` : ''}。`)
+  return { ok: true, amount: value, treasury: next, note: memo }
+}
+
 export function allowedDefs(state, settlement) {
-  const type = settlementType(settlement.type, state.options)
+  const type = settlementType(settlement.type)
   return state.buildingDefs.filter((def) => type.tiers.includes(def.tier))
 }
 
-// 实际建造费：成长速度改 p 成本，单资源模式去掉劳力与物资
-export function buildCost(state, def) {
+// 实际建造费：直接读建筑定义
+export function buildCost(def) {
   if (!def) return { labor: 0, p: 0, materials: 0 }
-  const growth = GROWTH_RATES[state.options?.growth] || GROWTH_RATES.normal
-  const p = Math.ceil((Number(def.p) || 0) * growth.costMultiplier)
-  if (state.options?.singleResource) return { labor: 0, p, materials: 0 }
   return {
     labor: Math.max(0, Number(def.labor) || 0),
-    p,
+    p: Math.max(0, Number(def.p) || 0),
     materials: Math.max(0, Number(def.materials) || 0),
   }
 }
@@ -559,7 +631,7 @@ export function canBuild(state, settlementId, defId) {
   if (!settlement) return { ok: false, reason: '没有这处定居点' }
   const def = defById(state, defId)
   if (!def) return { ok: false, reason: '没有这项建筑' }
-  if (!settlementType(settlement.type, state.options).tiers.includes(def.tier)) {
+  if (!settlementType(settlement.type).tiers.includes(def.tier)) {
     return { ok: false, reason: `这座定居点还不能建${tierLabel(def.tier)}档建筑` }
   }
   if (def.requiresWater && !settlement.water) {
@@ -573,7 +645,7 @@ export function canBuild(state, settlementId, defId) {
   if (def.slots > st.free) {
     return { ok: false, reason: `槽位不足：需要${def.slots}槽，只剩${st.free}槽` }
   }
-  const cost = buildCost(state, def)
+  const cost = buildCost(def)
   const missing = []
   if (state.laborPoints < cost.labor) missing.push(`劳力${cost.labor - state.laborPoints}`)
   if (state.treasury < cost.p) missing.push(`${cost.p - state.treasury}p`)
@@ -586,7 +658,7 @@ export function canUpgrade(state, settlementId) {
   const settlement = settlementById(state, settlementId)
   if (!settlement) return { ok: false, reason: '没有这处定居点' }
   const st = settlementStats(state, settlement)
-  const type = settlementType(settlement.type, state.options)
+  const type = settlementType(settlement.type)
   if (!st.full) return { ok: false, reason: '槽位还没填满' }
   if (!type.next) return { ok: false, reason: '已是最高档' }
   return { ok: true, reason: '' }
@@ -596,9 +668,9 @@ export function upgradeSettlement(state, settlementId) {
   const check = canUpgrade(state, settlementId)
   if (!check.ok) return check
   const settlement = settlementById(state, settlementId)
-  const from = settlementType(settlement.type, state.options)
+  const from = settlementType(settlement.type)
   settlement.type = from.next
-  pushLog(state, `${settlementLabel(settlement)} 槽位已满，升级为${settlementType(from.next, state.options).label}。`)
+  pushLog(state, `${settlementLabel(settlement)} 槽位已满，升级为${settlementType(from.next).label}。`)
   return { ok: true, type: settlement.type }
 }
 
@@ -607,13 +679,13 @@ export function buildBuilding(state, settlementId, defId) {
   if (!check.ok) return check
   const settlement = settlementById(state, settlementId)
   const def = defById(state, defId)
-  const cost = buildCost(state, def)
+  const cost = buildCost(def)
   state.laborPoints -= cost.labor
   state.treasury -= cost.p
   state.materials -= cost.materials
   const building = { id: makeId('b'), defId: def.id }
   settlement.buildings.push(building)
-  pushLog(state, `在${settlementLabel(settlement)}建成${defLabel(def)}，花费${costText(state, def)}。`)
+  pushLog(state, `在${settlementLabel(settlement)}建成${defLabel(def)}，花费${costText(def)}。`)
   if (settlementStats(state, settlement).full) upgradeSettlement(state, settlement.id)
   return { ok: true, building }
 }
@@ -675,31 +747,6 @@ export function clearBuildings(state, settlementId) {
   return { ok: true, count }
 }
 
-export const AMBITIONS = [
-  { id: 'pop50', label: '人口 50', test: (ctx) => ctx.population >= 50 },
-  { id: 'pop100', label: '人口 100', test: (ctx) => ctx.population >= 100 },
-  { id: 'pop200', label: '人口 200', test: (ctx) => ctx.population >= 200 },
-  { id: 'town', label: '建成城镇', test: (ctx) => ctx.settlements.some((s) => s.type === 'town' || s.type === 'city') },
-  { id: 'city', label: '建成城市', test: (ctx) => ctx.settlements.some((s) => s.type === 'city') },
-  { id: 's3', label: '定居点 3', test: (ctx) => ctx.settlements.length >= 3 },
-  { id: 's5', label: '定居点 5', test: (ctx) => ctx.settlements.length >= 5 },
-  { id: 'b12', label: '建筑 12 种', test: (ctx) => ctx.types.size >= 12 },
-  { id: 'p1000', label: '国库 1000p', test: (ctx) => ctx.treasury >= 1000 },
-  { id: 'p3000', label: '国库 3000p', test: (ctx) => ctx.treasury >= 3000 },
-]
-
-export function ambitionStatus(state) {
-  const stats = kingdomStats(state)
-  const types = new Set(state.settlements.flatMap((s) => s.buildings.map((b) => b.defId)))
-  const ctx = {
-    population: stats.totalPopulation,
-    settlements: state.settlements,
-    treasury: state.treasury,
-    types,
-  }
-  return AMBITIONS.map((a) => ({ id: a.id, label: a.label, done: a.test(ctx) }))
-}
-
 export function effectSummary(state, def) {
   if (!def) return ''
   const parts = []
@@ -720,9 +767,9 @@ export function effectSummary(state, def) {
   return parts.length ? parts.join('、') : '无效果'
 }
 
-export function costText(state, def) {
+export function costText(def) {
   if (!def) return ''
-  const cost = buildCost(state, def)
+  const cost = buildCost(def)
   const parts = []
   if (cost.labor) parts.push(`劳力${cost.labor}`)
   parts.push(`${cost.p}p`)

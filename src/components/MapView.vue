@@ -117,7 +117,7 @@ const view = computed(() => {
   return { x: nx0, y: y0, w: nx1 - nx0, h }
 })
 const activeMap = computed(() => maps.find((m) => m.id === activeId.value) || maps[0])
-const selKey = ref('RL1')
+const selKey = ref('')
 // 组件被 KeepAlive 缓存后 document 监听仍然挂着，失活时不能响应点击和快捷键
 const isActive = ref(true)
 const query = ref('')
@@ -415,7 +415,7 @@ function viewPoint(e) {
   const r = e.currentTarget.getBoundingClientRect()
   return [
     view.value.x + ((e.clientX - r.left) / r.width) * view.value.w,
-    ((e.clientY - r.top) / r.height) * view.value.h,
+    view.value.y + ((e.clientY - r.top) / r.height) * view.value.h,
   ]
 }
 // 重叠区取后画的图幅（与 DOM 绘制顺序一致）
